@@ -134,7 +134,7 @@ function getDefaultState() {
         mapCompletion: defaultMapCompletion(),
         mapOverrides: {},
         welkinActive:false, otherDailyPrimos:10,
-        resin: { current:0, max:160, lastSetAt:now },
+        resin: { current:0, max:200, lastSetAt:now },
     };
 }
 
@@ -158,6 +158,8 @@ function mergeDefaults(parsed) {
     const def = getDefaultState();
     const merged = Object.assign({}, def, parsed);
     merged.resin = Object.assign({}, def.resin, parsed.resin || {});
+    // Upgrade old resin cap (160) to the new 200 cap.
+    if (!merged.resin.max || merged.resin.max === 160) merged.resin.max = 200;
     merged.pityState = Object.assign({}, def.pityState, parsed.pityState || {});
     Object.keys(def.pityState).forEach(k => { if (!merged.pityState[k]) merged.pityState[k] = def.pityState[k]; });
     if (!merged.mapCompletion) merged.mapCompletion = def.mapCompletion;
@@ -484,10 +486,10 @@ async function checkUnknownItems() {
 function getCurrentResin() {
     const r = state.resin; if (!r || !r.lastSetAt) return r ? r.current : 0;
     const elapsedMin = (Date.now()-new Date(r.lastSetAt).getTime())/1000/60;
-    return Math.min((r.current||0)+Math.floor(elapsedMin/8), r.max||160);
+    return Math.min((r.current||0)+Math.floor(elapsedMin/8), r.max||200);
 }
 function timeToFullResin() {
-    const r = state.resin, cur = getCurrentResin(), max = r.max||160;
+    const r = state.resin, cur = getCurrentResin(), max = r.max||200;
     if (cur>=max) return 'Full';
     const needed = max-cur;
     const minsNeeded = needed*8 - (Math.floor((Date.now()-new Date(r.lastSetAt).getTime())/1000/60)%8);
@@ -1518,13 +1520,41 @@ async function importData(e) {
     const file = e.target.files && e.target.files[0]; e.target.value='';
     if (!file) return;
     try {
-        const parsed = JSON.parse(await file.text());
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        // Check if it's a full Genshin Tool state backup.
         const required = ['dailyTasks','weeklyTasks','primogemCount','gachaLog'];
-        if (!required.every(k => Object.prototype.hasOwnProperty.call(parsed, k))) { await showModal({type:'alert',title:'Invalid File',message:'This file does not look like a Genshin Tool backup.',confirmText:'OK'}); return; }
-        if (!await showModal({title:'Import Data',message:'This will replace all current data. Continue?',type:'confirm'})) return;
-        state = mergeDefaults(parsed); state.stateVersion = STATE_VERSION; saveState();
-        await loadItemDB(); deriveStandardPool(); recomputePityState(); renderAll();
-        await showModal({type:'alert',title:'Import Complete',message:'Your data has been restored.',confirmText:'OK'});
+        if (required.every(k => Object.prototype.hasOwnProperty.call(parsed, k))) {
+            if (!await showModal({title:'Import Data',message:'This will replace all current data for this account. Continue?',type:'confirm'})) return;
+            state = mergeDefaults(parsed); state.stateVersion = STATE_VERSION; saveState();
+            await loadItemDB(); deriveStandardPool(); recomputePityState(); renderAll();
+            await showModal({type:'alert',title:'Import Complete',message:'Your data has been restored.',confirmText:'OK'});
+            return;
+        }
+        // Not a full backup — try parsing as a wish-data file (paimon.moe / universal / raw array).
+        try {
+            const wishParsed = parseWishFile(text);
+            const ok = await showModal({
+                title: 'Import Wishes',
+                message: `This looks like a <b>${wishParsed.format}</b> wish file with <b>${wishParsed.wishes.length}</b> pulls.${wishParsed.wishes.length > 0 ? '<br><br>This will merge with your existing wish history (duplicates are skipped by pull ID).' : ''}`,
+                type: 'confirm',
+                confirmText: 'Import',
+            });
+            if (!ok) return;
+            let allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
+            const existingIds = new Set(allWishes.map(w => w.id));
+            let added = 0;
+            wishParsed.wishes.forEach(w => { if (!existingIds.has(w.id)) { allWishes.push(w); added++; } });
+            allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
+            state.gachaLog = { wishes: allWishes, lastImport: new Date().toISOString() };
+            saveState();
+            deriveStandardPool();
+            await checkUnknownItems();
+            renderAll();
+            await showModal({ type: 'alert', title: 'Import Complete', message: `Imported ${added} new wish${added === 1 ? '' : 'es'} (${allWishes.length} total).`, confirmText: 'OK' });
+        } catch (wishErr) {
+            await showModal({type:'alert',title:'Invalid File',message:'This file is neither a Genshin Tool backup nor a recognised wish-data file (paimon.moe / universal / raw array).',confirmText:'OK'});
+        }
     } catch (err) { await showModal({type:'alert',title:'Import Failed',message:err.message,confirmText:'OK'}); }
 }
 
@@ -1543,9 +1573,7 @@ function showView(viewId) {
     if (_viewAnimating) return;
     const active = document.querySelector('.view.active');
     if (active && active.id===viewId) return;
-    const back = $('back-button-hotspot'), header = document.querySelector('.header-section'), settingsBtn = $('menu-btn-settings'), statusBar = $('status-bar');
-    const showSettings = (viewId !== 'main-menu' && viewId !== 'view-map');
-    settingsBtn.style.display = showSettings ? 'flex' : 'none';
+    const back = $('back-button-hotspot'), header = document.querySelector('.header-section'), statusBar = $('status-bar');
     statusBar.style.display = (viewId==='view-map') ? 'none' : 'flex';
     if (viewId==='view-map') { document.body.classList.add('map-fullscreen'); header.style.display='none'; }
     else { document.body.classList.remove('map-fullscreen'); header.style.display='flex'; }
@@ -1587,9 +1615,6 @@ function renderAll() { renderTasks(); renderPrimos(); renderGachaStats(); render
 
 function bindGlobalEvents() {
     document.querySelectorAll('#main-menu .const-star').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
-    const sb = $('menu-btn-settings');
-    sb.addEventListener('click', () => showView('view-settings'));
-    sb.addEventListener('keydown', e => { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); showView('view-settings'); } });
     $('btn-back-main').addEventListener('click', () => showView('main-menu'));
     const tick = () => { $('live-clock').textContent = new Date().toLocaleTimeString('en-US', { hour12:true, hour:'2-digit', minute:'2-digit' }); };
     tick(); setInterval(tick, 1000);
