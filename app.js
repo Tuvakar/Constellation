@@ -371,6 +371,12 @@ async function loadItemDB() {
     deriveStandardPool();
     // Background refresh from theBowja/genshin-db GitHub repo (supports CORS, always up-to-date).
     // raw.githubusercontent.com returns Access-Control-Allow-Origin: * so no proxy needed.
+    //
+    // IMPORTANT: this network refresh is intentionally NOT awaited by init(). The UI must
+    // render immediately (constellation menu, status bar) even if the fetch is slow or blocked
+    // (e.g. GitHub Pages with no cached DB, or api.github.com rate-limiting). We apply whatever
+    // cached/fallback data we have synchronously, then refresh in the background and re-render
+    // the gacha view + pity + status bar once rarities are available.
     try {
         const map = {};
         const base = 'https://raw.githubusercontent.com/theBowja/genshin-db/main/src/data/English';
@@ -396,7 +402,13 @@ async function loadItemDB() {
             Object.assign(itemDB, map);
             try { localStorage.setItem(ITEM_DB_KEY, JSON.stringify({map:itemDB, fetchedAt:new Date().toISOString()})); } catch(e){}
             deriveStandardPool();
-            if ($('view-gacha').classList.contains('active')) renderGachaStats();
+            // Re-compute pity and re-render now that rarities are available. The UI already
+            // rendered with cached/fallback data; this updates it with accurate rarities.
+            try { recomputePityState(); } catch(e) { console.warn('recomputePityState after DB refresh failed', e); }
+            try { renderStatusBar(); } catch(e) {}
+            if ($('view-gacha') && $('view-gacha').classList.contains('active')) {
+                try { renderGachaStats(); } catch(e) {}
+            }
         }
     } catch(e) { console.warn('Rarity DB background refresh failed, using cached/fallback.', e); }
 }
@@ -1689,13 +1701,19 @@ function bindGlobalEvents() {
 async function init() {
     $('custom-modal').innerHTML = `<div class="modal-content"><h3 id="modal-title"></h3><p id="modal-message"></p><div id="modal-custom-content"></div><input type="text" id="modal-input" class="modal-input" style="display:none;"><div class="modal-buttons"><button id="modal-cancel-btn" class="btn btn-secondary">Cancel</button><button id="modal-confirm-btn" class="btn btn-primary">Confirm</button></div></div>`;
     loadTheme();
-    
+
     initAccountPill();
     loadState();
-    await loadItemDB();
-    deriveStandardPool();
-    recomputePityState();
-    checkForAutomaticResets();
+    // Kick off the rarity-DB load WITHOUT awaiting. The UI must render immediately
+    // (constellation menu, status bar, clock) even if the network fetch is slow or
+    // blocked (e.g. GitHub Pages with no cached DB, or api.github.com rate-limiting).
+    // loadItemDB applies cached/fallback data synchronously, then refreshes in the
+    // background and re-renders gacha/pity/status once rarities are available.
+    loadItemDB();
+    // Wrap data-dependent steps so a throw in any one never blocks the UI rendering.
+    try { deriveStandardPool(); } catch(e) { console.warn('deriveStandardPool failed', e); }
+    try { recomputePityState(); } catch(e) { console.warn('recomputePityState failed', e); }
+    try { checkForAutomaticResets(); } catch(e) { console.warn('checkForAutomaticResets failed', e); }
     startResinTicker();
     bindGlobalEvents();
     renderAll();
