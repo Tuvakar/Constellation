@@ -14,12 +14,13 @@ const THEME_KEY       = 'genshinTheme_v1';
 const ACCOUNTS_KEY    = 'genshinAccounts_v1';   // { activeId, list: [{id, name}] }
 // Each account's data lives under DATA_PREFIX + accountId.
 const DATA_PREFIX     = 'genshinTrackerData_v3_acc_';
-// CORS proxies — corsproxy.io first (matches the original working script),
-// with fallbacks for when it rate-limits or returns 403.
+// CORS proxies — ordered by reliability. allorigins first (most reliable in testing),
+// with corsproxy.io and others as fallbacks. corsproxy.io frequently returns 403 or
+// hangs under load, so it's no longer the primary.
 const CORS_PROXIES = [
-    (u) => 'https://corsproxy.io/?' + encodeURIComponent(u),
     (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
     (u) => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
+    (u) => 'https://corsproxy.io/?' + encodeURIComponent(u),
     (u) => 'https://corsproxy.org/?' + encodeURIComponent(u),
     (u) => 'https://thingproxy.freeboard.io/fetch/' + u,
 ];
@@ -961,52 +962,61 @@ async function handleGachaImport(url) {
     }
 
     // Fetch with proxy fallback. Tries each proxy in order until one returns valid
-    // wish data. Mirrors the original script's tolerance: a non-zero retcode just
-    // stops that banner (returns null = break), it does NOT throw an error.
+    // wish data. A non-zero retcode stops that banner (returns null = break).
     //
-    // Each attempt has a TIMEOUT (via AbortController) covering fetch + body parse,
-    // so a hung proxy connection OR a slow body drip triggers the fallback instead
-    // of hanging the import forever. The timeout is kept tight (12s) because there
-    // are 5 proxies — 5 × 12s = 60s worst-case before a clear error, never infinite.
+    // TIMEOUT: Each attempt is raced against a hard timeout via Promise.race. This is
+    // bulletproof — it fires regardless of whether AbortController works for the
+    // specific cross-origin response (some browsers don't abort opaque/CORS-blocked
+    // responses reliably). A hung proxy connection (or a slow body drip) is guaranteed
+    // to be caught at 10s, then the next proxy is tried. 5 × 10s = 50s worst-case.
     async function fetchWithRetry(targetUrl, label) {
         const maxAttempts = CORS_PROXIES.length;
-        const ATTEMPT_TIMEOUT_MS = 12000;
+        const ATTEMPT_TIMEOUT_MS = 10000;
+        const proxyNames = ['allorigins.win', 'codetabs.com', 'corsproxy.io', 'corsproxy.org', 'thingproxy'];
         let lastErr = null;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             if (_importAborted) throw new Error('Import cancelled by user.');
             const proxyIdx = (attempt - 1) % CORS_PROXIES.length;
             const proxyUrl = CORS_PROXIES[proxyIdx](targetUrl);
-            const proxyName = ['corsproxy.io', 'allorigins.win', 'codetabs.com', 'corsproxy.org', 'thingproxy'][proxyIdx] || ('proxy ' + (proxyIdx + 1));
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+            const proxyName = proxyNames[proxyIdx] || ('proxy ' + (proxyIdx + 1));
+            setStatus(`${label}${attempt > 1 ? ` (fallback ${attempt}/${maxAttempts}: ${proxyName})` : ` (via ${proxyName})`}...`);
             try {
-                setStatus(`${label}${attempt > 1 ? ` (fallback ${attempt}/${maxAttempts}: ${proxyName})` : ` (via ${proxyName})`}...`);
-                const response = await fetch(proxyUrl, { signal: controller.signal });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                // Parse the body WITH the abort signal still active — a slow body drip
-                // (proxy accepts the connection but never finishes sending) is caught
-                // by the same timeout, not just a connect-time hang.
-                const data = await response.json();
-                clearTimeout(timeoutId);
+                // Race the fetch+parse against a hard timeout. The timeout promise
+                // NEVER resolves — it only rejects — so if the fetch hangs, the race
+                // settles on the timeout rejection at exactly ATTEMPT_TIMEOUT_MS.
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('__TIMEOUT__')), ATTEMPT_TIMEOUT_MS);
+                });
+                const fetchPromise = (async () => {
+                    const controller = new AbortController();
+                    const tid = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+                    try {
+                        const response = await fetch(proxyUrl, { signal: controller.signal });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const data = await response.json();
+                        return data;
+                    } finally {
+                        clearTimeout(tid);
+                    }
+                })();
+                const data = await Promise.race([fetchPromise, timeoutPromise]);
                 if (_importAborted) throw new Error('Import cancelled by user.');
                 // Match original behaviour: bad retcode => stop this banner (NOT an error).
                 if (data.retcode !== 0) return null;
                 return data;
             } catch (e) {
-                clearTimeout(timeoutId);
                 if (_importAborted) throw new Error('Import cancelled by user.');
-                const reason = e.name === 'AbortError' ? `timed out after ${ATTEMPT_TIMEOUT_MS/1000}s` : e.message;
+                const reason = e.message === '__TIMEOUT__' ? `timed out after ${ATTEMPT_TIMEOUT_MS/1000}s` : e.message;
                 lastErr = e;
                 if (attempt < maxAttempts) {
                     setStatus(`${label} — ${proxyName} ${reason}, trying next proxy...`);
-                    await new Promise(r => setTimeout(r, 600));
+                    await new Promise(r => setTimeout(r, 500));
                 } else {
                     // All proxies failed — surface a clear error rather than hanging.
                     throw new Error(`${label} failed via all proxies (${reason}). You may be rate-limited; wait a minute and try again, or use File Import instead.`);
                 }
             }
         }
-        // Unreachable (loop throws on last attempt), but keep for safety.
         throw new Error(`${label} failed via all proxies (${lastErr ? lastErr.message : 'unknown'}). You may be rate-limited; wait a minute and try again.`);
     }
 
