@@ -54,7 +54,7 @@ const IMPORT_BANNER_TYPES = [
 
 
 
-const ITEM_DB_FALLBACK = {}; // Empty — database is fetched live from theBowja/genshin-db GitHub repo
+const ITEM_DB_FALLBACK = {"Aino":4,"Albedo":5,"Alhaitham":5,"Aloy":5,"Amber":4,"Arataki Itto":5,"Arlecchino":5,"Baizhu":5,"Barbara":4,"Beidou":4,"Bennett":4,"Candace":4,"Charlotte":4,"Chasca":5,"Chevreuse":4,"Chiori":5,"Chongyun":4,"Citlali":5,"Clorinde":5,"Collei":4,"Columbina":5,"Cyno":5,"Dahlia":4,"Dehya":5,"Diluc":5,"Diona":4,"Dori":4,"Durin":5,"Emilie":5,"Escoffier":5,"Eula":5,"Faruzan":4,"Fischl":4,"Flins":5,"Freminet":4,"Furina":5,"Gaming":4,"Ganyu":5,"Gorou":4,"Hu Tao":5,"Iansan":4,"Ifa":4,"Illuga":4,"Ineffa":5,"Jahoda":4,"Jean":5,"Kachina":4,"Kaedehara Kazuha":5,"Kaeya":4,"Kamisato Ayaka":5,"Kamisato Ayato":5,"Kaveh":4,"Keqing":5,"Kinich":5,"Kirara":4,"Klee":5,"Kujou Sara":4,"Kuki Shinobu":4,"Lan Yan":4,"Lauma":5,"Layla":4,"Linnea":5,"Lisa":4,"Lohen":5,"Lynette":4,"Lyney":5,"Mavuika":5,"Mika":4,"Mona":5,"Mualani":5,"Nahida":5,"Navia":5,"Nefer":5,"Neuvillette":5,"Nicole":5,"Nilou":5,"Ningguang":4,"Noelle":4,"Ororon":4,"Prune":4,"Qiqi":5,"Raiden Shogun":5,"Razor":4,"Rosaria":4,"Sangonomiya Kokomi":5,"Sayu":4,"Sethos":4,"Shenhe":5,"Shikanoin Heizou":4,"Sigewinne":5,"Skirk":5,"Sucrose":4,"Tartaglia":5,"Thoma":4,"Tighnari":5,"player's choice":5,"Traveler (Dendro)":5,"Traveler":5,"Varesa":5,"Varka":5,"Venti":5,"Wanderer":5,"Wriothesley":5,"Xiangling":4,"Xianyun":5,"Xiao":5,"Xilonen":5,"Xingqiu":4,"Xinyan":4,"Yae Miko":5,"Yanfei":4,"Yaoyao":4,"Yelan":5,"Yoimiya":5,"Yumemizuki Mizuki":5,"Yun Jin":4,"Zhongli":5,"Zibai":5,"Wolf's Gravestone":5,"Aquila Favonia":5,"Lost Prayer to the Sacred Winds":5,"Skyward Harp":5,"Skyward Pride":5,"Skyward Spine":5,"Memory of Dust":5,"The Unforged":5,"Vortex Vanquisher":5,"Summit Shaper":5,"Skyward Blade":5,"Amos' Bow":5,"Skyward Atlas":5,"The Flute":4,"Sacrificial Sword":4,"paimon's bargains":4,"Eye of Perception":4,"Iron Sting":4,"Prototype Rancour":4,"Lion's Roar":4,"Serpent Spine":4,"Prototype Crescent":4,"Dragon's Bane":4,"The Black Sword":4,"Crescent Pike":4,"The Viridescent Hunt":4,"Favonius Lance":4,"Festering Desire":4,"Frostbearer":4,"Sacrificial Greatsword":4,"Sword of Descension":4,"The Alley Flash":4,"Deathmatch":4,"Favonius Sword":4,"Alley Hunter":4,"Lithic Spear":4,"Wine and Song":4,"Lithic Blade":4,"Prototype Starglitter":4,"Whiteblind":4,"The Widsith":4,"Compound Bow":4,"Favonius Warbow":4,"Rust":4,"The Stringless":4,"Sacrificial Bow":4,"Favonius Codex":4,"Mappa Mare":4,"Prototype Amber":4,"Sacrificial Fragments":4,"Solar Pearl":4,"Dragonspine Spear":4,"Favonius Greatsword":4,"The Bell":4,"Rainslasher":4,"Prototype Archaic":4,"Ferrous Shadow":3,"Debate Club":3,"Dark Iron Sword":3,"Cool Steel":3,"Otherworldly Story":3,"Halberd":3,"Slingshot":3,"Sharpshooter's Oath":3,"Raven Bow":3,"Black Tassel":3,"Skyrider Greatsword":3,"wish, kaeya's gain":3,"Recurve Bow":3,"Bloodtainted Greatsword":3,"White Iron Greatsword":3,"White Tassel":3,"wish, from pan guan'er":3,"Messenger":3,"Emerald Orb":3,"Traveler's Handy Sword":3,"Twin Nephrite":3,"Fillet Blade":3,"Thrilling Tales of Dragon Slayers":3,"Magic Guide":3,"Seasoned Hunter's Bow":2,"Silver Sword":2,"Pocket Grimoire":2,"Old Merc's Pal":2,"Iron Point":2,"Beginner's Protector":1,"Apprentice's Notes":1,"Dull Blade":1,"Waster Greatsword":1,"Hunter's Bow":1,"Primordial Jade Cutter":5,"Staff of Homa":5,"Elegy for the End":5,"Windblume Ode":4,"Song of Broken Pines":5,"Mitternachts Waltz":4,"Dodoco Tales":4,"Mistsplitter Reforged":5,"Thundering Pulse":5,"Amenoma Kageuchi":4,"Hakushin Ring":4,"Hamayumi":4,"Katsuragikiri Nagamasa":4,"Kitain Cross Spear":4,"Engulfing Lightning":5,"\"The Catch\"":4,"Predator":4,"Everlasting Moonglow":5,"Polar Star":5,"Akuoumaru":4,"Wavebreaker's Fin":4,"Mouun's Moon":4,"Cinnabar Spindle":4,"Redhorn Stonethresher":5,"Calamity Queller":5,"Kagura's Verity":5,"Oathsworn Eye":4,"Haran Geppaku Futsu":5,"Aqua Simulacra":5,"Fading Twilight":4,"Kagotsurube Isshin":4,"Hunter's Path":5,"End of the Line":4,"Forest Regalia":4,"Fruit of Fulfillment":4,"King's Squire":4,"Moonpiercer":4,"Sapwood Blade":4,"Staff of the Scarlet Sands":5,"Makhaira Aquamarine":4,"Xiphos' Moonlight":4,"Wandering Evenstar":4,"Missive Windspear":4,"A Thousand Floating Dreams":5,"Tulaytullah's Remembrance":5,"Toukabou Shigure":4,"Light of Foliar Incision":5,"Beacon of the Reed Sea":5,"Mailed Flower":4,"Jadefall's Splendor":5,"Duel! The Summoners' Summit! Event":4,"The First Great Magic":5,"Ballad of the Fjords":4,"Finale of the Deep":4,"Fleuve Cendre Ferryman":4,"Flowing Purity":4,"Rightful Reward":4,"Scion of the Blazing Sun":4,"Song of Stillness":4,"Talking Stick":4,"Tidal Shadow":4,"Sacrificial Jade":4,"Tome of the Eternal Flow":5,"The Dockhand's Assistant":4,"Portable Power Saw":4,"Ballad of the Boundless Blue":4,"Cashflow Supervision":5,"Prospector's Drill":4,"Range Gauge":4,"Splendor of Tranquil Waters":5,"Verdict":5,"\"Ultimate Overlord\\":4,"Crane's Echoing Call":5,"Dialogues of the Desert Sages":4,"Uraku Misugiri":5,"Crimson Moon's Semblance":5,"Absolution":5,"Cloudforged":4,"Silvershower Heartstrings":5,"Lumidouce Elegy":5,"Surf's Up":5,"Chain Breaker":4,"Earth Shaker":4,"Flute of Ezpitzal":4,"Footprint of the Rainbow":4,"Ring of Yaxche":4,"Fang of the Mountain King":5,"Fruitful Hook":4,"Peak Patrol Song":5,"Sturdy Bone":4,"Astral Vulture's Crimson Plumage":5,"Waveriding Whirl":4,"Calamity of Eshu":4,"A Thousand Blazing Suns":5,"Starcaller's Watch":5,"Tamayuratei no Ohanashi":4,"Vivid Notions":5,"Symphonist of Scents":5,"Sequence of Solitude":4,"Azurelight":5,"Fractured Halo":5,"Nightweaver's Looking Glass":5,"Etherlight Spindlelute":4,"Bloodsoaked Ruins":5,"Reliquary of Truth":5,"Dawning Frost":4,"Moonweaver's Dawn":4,"Sacrificer's Staff":4,"Athame Artis":5,"The Daybreak Chronicles":5,"Rainbow Serpent's Rain Bow":4,"Nocturne's Curtain Call":5,"Lightbearing Moonshard":5,"Gest of the Mighty Wolf":5,"Golden Frostbound Oath":5,"Angelos' Heptades":5,"Disaster and Remorse":5}; // Bundled rarity database (characters + weapons) — like paimon.moe, no runtime fetch needed
 
 // ---------- State ----------
 let state, itemDB = {}, _standardPool = new Set();
@@ -357,60 +357,19 @@ async function promptUnknownRarity(name) {
     return rarity;
 }
 async function loadItemDB() {
-    // Always start from the hardcoded fallback so there's a baseline even if all APIs fail.
+    // The rarity database is BUNDLED in ITEM_DB_FALLBACK (325 entries: all characters
+    // + weapons through the current patch, sourced from paimon.moe's data files).
+    // This is the paimon.moe approach: no runtime fetch needed, the app works 100%
+    // offline and never blocks on or fails due to api.github.com rate-limiting.
     itemDB = Object.assign({}, ITEM_DB_FALLBACK);
-    let cached = null;
-    try { cached = JSON.parse(localStorage.getItem(ITEM_DB_KEY)||'null'); } catch(e){}
-    // 6-hour cache: new patch characters appear without a long wait, but we don't hammer the API.
-    const TTL = 6*60*60*1000;
-    if (cached && cached.fetchedAt && (Date.now()-new Date(cached.fetchedAt).getTime())<TTL && cached.map) {
-        Object.assign(itemDB, cached.map); deriveStandardPool(); return;
-    }
-    // If we have a stale cache, use it immediately while refreshing in the background.
-    if (cached && cached.map) Object.assign(itemDB, cached.map);
-    deriveStandardPool();
-    // Background refresh from theBowja/genshin-db GitHub repo (supports CORS, always up-to-date).
-    // raw.githubusercontent.com returns Access-Control-Allow-Origin: * so no proxy needed.
-    //
-    // IMPORTANT: this network refresh is intentionally NOT awaited by init(). The UI must
-    // render immediately (constellation menu, status bar) even if the fetch is slow or blocked
-    // (e.g. GitHub Pages with no cached DB, or api.github.com rate-limiting). We apply whatever
-    // cached/fallback data we have synchronously, then refresh in the background and re-render
-    // the gacha view + pity + status bar once rarities are available.
+    // Apply any cached overlay from localStorage. This preserves characters that a
+    // previous successful background fetch may have picked up (forward-compat), and
+    // user-seeded rarities (checkUnknownItems). Cached data overrides the bundle.
     try {
-        const map = {};
-        const base = 'https://raw.githubusercontent.com/theBowja/genshin-db/main/src/data/English';
-        // Fetch the file tree to discover all character/weapon filenames.
-        const treeRes = await fetch('https://api.github.com/repos/theBowja/genshin-db/git/trees/main?recursive=1');
-        if (treeRes.ok) {
-            const tree = await treeRes.json();
-            const charFiles = tree.tree.filter(f => f.path.startsWith('src/data/English/characters/') && f.path.endsWith('.json'));
-            const weapFiles = tree.tree.filter(f => f.path.startsWith('src/data/English/weapons/') && f.path.endsWith('.json'));
-            const allFiles = [...charFiles, ...weapFiles];
-            // Fetch in batches of 20 to avoid rate limits.
-            for (let i = 0; i < allFiles.length; i += 20) {
-                const batch = allFiles.slice(i, i + 20);
-                const settled = await Promise.allSettled(batch.map(f =>
-                    fetch(`${base}/${f.path.replace('src/data/English/', '')}`).then(r => r.ok ? r.json() : null)
-                ));
-                settled.forEach(s => {
-                    if (s.status === 'fulfilled' && s.value && s.value.name) {
-                        map[s.value.name] = parseInt(s.value.rarity, 10) || 4;
-                    }
-                });
-            }
-            Object.assign(itemDB, map);
-            try { localStorage.setItem(ITEM_DB_KEY, JSON.stringify({map:itemDB, fetchedAt:new Date().toISOString()})); } catch(e){}
-            deriveStandardPool();
-            // Re-compute pity and re-render now that rarities are available. The UI already
-            // rendered with cached/fallback data; this updates it with accurate rarities.
-            try { recomputePityState(); } catch(e) { console.warn('recomputePityState after DB refresh failed', e); }
-            try { renderStatusBar(); } catch(e) {}
-            if ($('view-gacha') && $('view-gacha').classList.contains('active')) {
-                try { renderGachaStats(); } catch(e) {}
-            }
-        }
-    } catch(e) { console.warn('Rarity DB background refresh failed, using cached/fallback.', e); }
+        const cached = JSON.parse(localStorage.getItem(ITEM_DB_KEY)||'null');
+        if (cached && cached.map) Object.assign(itemDB, cached.map);
+    } catch(e){}
+    deriveStandardPool();
 }
 function deriveStandardPool() {
     const pool = new Set(['Keqing','Mona','Qiqi','Diluc','Jean','Dehya','Tighnari']);
