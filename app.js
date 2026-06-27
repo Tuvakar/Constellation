@@ -957,6 +957,9 @@ async function handleGachaImport(url) {
     }
     renderImportStatus('Starting import...');
     let allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
+    // Remember how many wishes existed BEFORE the import, so we can compute the number
+    // of genuinely NEW wishes found (for the confirmation step).
+    const existingCountBefore = allWishes.length;
     // Multiset dedup: count how many of each (gacha_type|name|time) exist.
     // This allows duplicate items from 10-pulls (same name + timestamp) while
     // still catching cross-source duplicates (paimon.moe vs URL import).
@@ -1071,6 +1074,27 @@ async function handleGachaImport(url) {
             await showModal({type:'alert',title:'Import Cancelled',message: allWishes.length > 0 ? `Import cancelled. ${allWishes.length} wishes were saved before you cancelled — re-import later to continue.` : 'Import cancelled. No wishes were fetched.',confirmText:'OK'});
             return;
         }
+        // Compute how many genuinely NEW wishes were found (vs. existing before import).
+        const newCount = allWishes.length - existingCountBefore;
+        // If no new wishes were found, tell the user and stop (no commit needed).
+        if (newCount <= 0) {
+            renderGachaStats(); renderCalendar(); renderStatusBar();
+            await showModal({type:'alert',title:'No New Wishes',message:'No new wishes were found. Your gacha log is already up to date.',confirmText:'OK'});
+            return;
+        }
+        // Confirmation step (like paimon.moe): show how many new wishes were found and
+        // let the user confirm before committing them to the account. Uses the standard
+        // confirm modal (Cancel/Confirm buttons) so the promise resolves correctly.
+        const confirmed = await showModal({
+            type: 'confirm',
+            title: 'Import Preview',
+            message: `Found <b>${newCount}</b> new wish${newCount === 1 ? '' : 'es'}.<br><br>Your account currently has <b>${existingCountBefore}</b> wish${existingCountBefore === 1 ? '' : 'es'}. After importing, you'll have <b>${allWishes.length}</b> total.<br><br>Add these ${newCount} new wish${newCount === 1 ? '' : 'es'} to your account?`,
+            confirmText: `Add ${newCount} Wish${newCount === 1 ? '' : 'es'}`,
+        });
+        if (!confirmed) {
+            renderGachaStats(); renderCalendar(); renderStatusBar();
+            return;
+        }
         // Final dedup by wish ID only (multi-pulls can share name+timestamp).
         const unique = Array.from(new Map(allWishes.map(w => [w.id, w])).values());
         unique.sort((a,b) => new Date(b.time) - new Date(a.time));
@@ -1079,7 +1103,7 @@ async function handleGachaImport(url) {
         deriveStandardPool();
         await checkUnknownItems();
         renderGachaStats(); renderCalendar(); renderStatusBar();
-        await showModal({type:'alert',title:'Import Complete',message:`Imported ${unique.length} wishes.`,confirmText:'OK'});
+        await showModal({type:'alert',title:'Import Complete',message:`Added ${newCount} new wish${newCount === 1 ? '' : 'es'}. You now have ${unique.length} total.`,confirmText:'OK'});
     } catch (err) {
         // Save partial progress so a mid-import failure doesn't lose what was fetched.
         if (allWishes.length > 0) {
@@ -1289,13 +1313,38 @@ async function importWishFile(e) {
                 allWishes.push(w); added++;
             });
         }
+        // Confirmation step (like paimon.moe): show how many new/replaced wishes and let
+        // the user confirm before committing. For Replace mode, this is critical because
+        // it wipes existing data. For Merge, it shows how many new wishes will be added.
+        let confirmMsg;
+        if (importMode === 'replace') {
+            const hadCount = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.length : 0;
+            confirmMsg = `This will <b>replace all</b> your current wish history.<br><br>You currently have <b>${hadCount}</b> wish${hadCount === 1 ? '' : 'es'}. The imported file contains <b>${allWishes.length}</b> wish${allWishes.length === 1 ? '' : 'es'}.<br><br>Replace your existing data with these ${allWishes.length} wish${allWishes.length === 1 ? '' : 'es'}?`;
+        } else {
+            if (added <= 0) {
+                await showModal({ type: 'alert', title: 'No New Wishes', message: 'No new wishes were found in the file. Your existing data is unchanged.', confirmText: 'OK' });
+                return;
+            }
+            const hadCount = allWishes.length - added;
+            confirmMsg = `Found <b>${added}</b> new wish${added === 1 ? '' : 'es'} in the file.<br><br>Your account currently has <b>${hadCount}</b> wish${hadCount === 1 ? '' : 'es'}. After importing, you'll have <b>${allWishes.length}</b> total.<br><br>Add these ${added} new wish${added === 1 ? '' : 'es'}?`;
+        }
+        const confirmed = await showModal({
+            type: 'confirm',
+            title: 'Import Preview',
+            message: confirmMsg,
+            confirmText: importMode === 'replace' ? 'Replace All' : `Add ${added} Wish${added === 1 ? '' : 'es'}`,
+        });
+        if (!confirmed) {
+            renderGachaStats();
+            return;
+        }
         allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
         state.gachaLog = { wishes: allWishes, lastImport: new Date().toISOString() };
         saveState();
         deriveStandardPool();
         await checkUnknownItems();
         renderGachaStats(); renderCalendar(); renderStatusBar();
-        await showModal({ type: 'alert', title: 'Import Complete', message: `${importMode === 'replace' ? 'Replaced with' : 'Added'} ${added} wish${added === 1 ? '' : 'es'} (${allWishes.length} total).`, confirmText: 'OK' });
+        await showModal({ type: 'alert', title: 'Import Complete', message: `${importMode === 'replace' ? 'Replaced with' : 'Added'} ${importMode === 'replace' ? allWishes.length : added} wish${(importMode === 'replace' ? allWishes.length : added) === 1 ? '' : 'es'} (${allWishes.length} total).`, confirmText: 'OK' });
     } catch (err) {
         await showModal({ type: 'alert', title: 'Import Failed', message: err.message || String(err), confirmText: 'OK' });
         renderGachaStats();
@@ -1554,7 +1603,7 @@ function renderSettings() {
         <div class="settings-section"><h3>Data Backup</h3><div class="data-buttons"><button id="export-data-btn" class="btn btn-primary">Export Data</button><button id="import-data-btn" class="btn btn-secondary">Import Data</button><input type="file" id="import-data-file" accept=".json" style="display:none;"></div></div>
         <div class="settings-section"><h3>Danger Zone</h3><div class="controls-group" style="margin-top:0;"><button id="reset-all-btn" class="btn btn-clear">Clear &amp; Reset This Account</button></div></div>
         <div class="settings-section" style="text-align:center;color:var(--secondary-text);font-size:0.8em;opacity:0.7;">
-            <p>Constellation v11 &middot; timeout-protected import</p>
+            <p>Constellation v12 &middot; timeout-protected import</p>
             <p style="font-size:0.9em;margin-top:4px;">If the import hangs on "via corsproxy.io" for more than 10 seconds without falling back, you are viewing a CACHED old version. Hard-refresh (Ctrl+Shift+R / Cmd+Shift+R) to load the latest.</p>
         </div>
     </div>`;
