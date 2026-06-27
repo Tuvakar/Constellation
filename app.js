@@ -49,7 +49,7 @@ const IMPORT_BANNER_TYPES = [
     { id:'302', name:'Weapon Event' },
     { id:'200', name:'Standard' },
     { id:'500', name:'Chronicled Wish' },
-    { id:'100', name:'Novice' },
+    { id:'100', name:'Novice' }, // Beginners' Wish — removed long ago; most accounts have 0 pulls, kept last so the active banners import first.
 ];
 
 
@@ -955,29 +955,46 @@ async function handleGachaImport(url) {
     // Fetch with proxy fallback. Tries each proxy in order until one returns valid
     // wish data. Mirrors the original script's tolerance: a non-zero retcode just
     // stops that banner (returns null = break), it does NOT throw an error.
+    //
+    // Each attempt has a TIMEOUT (via AbortController) so a hung proxy connection
+    // (rate-limited, slow, or stuck) triggers the fallback instead of hanging the
+    // import forever. Without this, a stalled corsproxy.io socket would leave the
+    // spinner spinning indefinitely on "Fetching ... page 1 (via corsproxy.io)...".
     async function fetchWithRetry(targetUrl, label) {
         const maxAttempts = CORS_PROXIES.length;
+        // Per-attempt timeout. Generous enough for a real response, short enough that
+        // 5 proxies × 20s = 100s worst-case before a clear error (not an infinite hang).
+        const ATTEMPT_TIMEOUT_MS = 20000;
         let lastErr = null;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             const proxyIdx = (attempt - 1) % CORS_PROXIES.length;
             const proxyUrl = CORS_PROXIES[proxyIdx](targetUrl);
             const proxyName = ['corsproxy.io', 'allorigins.win', 'codetabs.com', 'corsproxy.org', 'thingproxy'][proxyIdx] || ('proxy ' + (proxyIdx + 1));
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
             try {
                 setStatus(`${label}${attempt > 1 ? ` (fallback ${attempt}/${maxAttempts}: ${proxyName})` : ` (via ${proxyName})`}...`);
-                const response = await fetch(proxyUrl);
+                const response = await fetch(proxyUrl, { signal: controller.signal });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
+                clearTimeout(timeoutId);
                 // Match original behaviour: bad retcode => stop this banner (NOT an error).
                 if (data.retcode !== 0) return null;
                 return data;
             } catch (e) {
+                clearTimeout(timeoutId);
+                const reason = e.name === 'AbortError' ? `timed out after ${ATTEMPT_TIMEOUT_MS/1000}s` : e.message;
                 lastErr = e;
                 if (attempt < maxAttempts) {
-                    setStatus(`${label} — ${proxyName} failed (${e.message}), trying next proxy...`);
+                    setStatus(`${label} — ${proxyName} ${reason}, trying next proxy...`);
                     await new Promise(r => setTimeout(r, 600));
+                } else {
+                    // All proxies failed — surface a clear error rather than hanging.
+                    throw new Error(`${label} failed via all proxies (${reason}). You may be rate-limited; wait a minute and try again, or use File Import instead.`);
                 }
             }
         }
+        // Unreachable (loop throws on last attempt), but keep for safety.
         throw new Error(`${label} failed via all proxies (${lastErr ? lastErr.message : 'unknown'}). You may be rate-limited; wait a minute and try again.`);
     }
 
