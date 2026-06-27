@@ -933,11 +933,19 @@ async function openGachaImport() {
     if (url) { state.calendarDisplayYear = new Date().getFullYear(); saveState(); await handleGachaImport(url); }
 }
 async function handleGachaImport(url) {
+    // Switch to the Gacha view FIRST so the user sees the import status (not the
+    // constellation menu) while it runs. Without this, the spinner renders inside
+    // the hidden #view-gacha and the user sees the menu with nothing happening.
+    showView('view-gacha');
     const container = $('gacha-stats-container');
-    // Helper to render the animated importing status (spinner + text + shimmer bar).
+    // Helper to render the animated importing status (spinner + text + shimmer bar)
+    // plus a Cancel button so the user can abort a stuck import at any time.
+    let _importAborted = false;
     function renderImportStatus(text) {
         if (!container) return;
-        container.innerHTML = `<p class="import-status"><span class="import-spinner"></span><span class="import-text" id="gacha-import-status">${text}</span><span class="import-progress"></span></p>`;
+        container.innerHTML = `<p class="import-status"><span class="import-spinner"></span><span class="import-text" id="gacha-import-status">${text}</span><span class="import-progress"></span></p><div style="text-align:center;margin-top:10px;"><button id="cancel-import-btn" class="btn btn-secondary">Cancel Import</button></div>`;
+        const cancelBtn = document.getElementById('cancel-import-btn');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => { _importAborted = true; setStatus('Cancelling...'); });
     }
     renderImportStatus('Starting import...');
     let allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
@@ -956,17 +964,16 @@ async function handleGachaImport(url) {
     // wish data. Mirrors the original script's tolerance: a non-zero retcode just
     // stops that banner (returns null = break), it does NOT throw an error.
     //
-    // Each attempt has a TIMEOUT (via AbortController) so a hung proxy connection
-    // (rate-limited, slow, or stuck) triggers the fallback instead of hanging the
-    // import forever. Without this, a stalled corsproxy.io socket would leave the
-    // spinner spinning indefinitely on "Fetching ... page 1 (via corsproxy.io)...".
+    // Each attempt has a TIMEOUT (via AbortController) covering fetch + body parse,
+    // so a hung proxy connection OR a slow body drip triggers the fallback instead
+    // of hanging the import forever. The timeout is kept tight (12s) because there
+    // are 5 proxies — 5 × 12s = 60s worst-case before a clear error, never infinite.
     async function fetchWithRetry(targetUrl, label) {
         const maxAttempts = CORS_PROXIES.length;
-        // Per-attempt timeout. Generous enough for a real response, short enough that
-        // 5 proxies × 20s = 100s worst-case before a clear error (not an infinite hang).
-        const ATTEMPT_TIMEOUT_MS = 20000;
+        const ATTEMPT_TIMEOUT_MS = 12000;
         let lastErr = null;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (_importAborted) throw new Error('Import cancelled by user.');
             const proxyIdx = (attempt - 1) % CORS_PROXIES.length;
             const proxyUrl = CORS_PROXIES[proxyIdx](targetUrl);
             const proxyName = ['corsproxy.io', 'allorigins.win', 'codetabs.com', 'corsproxy.org', 'thingproxy'][proxyIdx] || ('proxy ' + (proxyIdx + 1));
@@ -976,13 +983,18 @@ async function handleGachaImport(url) {
                 setStatus(`${label}${attempt > 1 ? ` (fallback ${attempt}/${maxAttempts}: ${proxyName})` : ` (via ${proxyName})`}...`);
                 const response = await fetch(proxyUrl, { signal: controller.signal });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                // Parse the body WITH the abort signal still active — a slow body drip
+                // (proxy accepts the connection but never finishes sending) is caught
+                // by the same timeout, not just a connect-time hang.
                 const data = await response.json();
                 clearTimeout(timeoutId);
+                if (_importAborted) throw new Error('Import cancelled by user.');
                 // Match original behaviour: bad retcode => stop this banner (NOT an error).
                 if (data.retcode !== 0) return null;
                 return data;
             } catch (e) {
                 clearTimeout(timeoutId);
+                if (_importAborted) throw new Error('Import cancelled by user.');
                 const reason = e.name === 'AbortError' ? `timed out after ${ATTEMPT_TIMEOUT_MS/1000}s` : e.message;
                 lastErr = e;
                 if (attempt < maxAttempts) {
@@ -1003,8 +1015,9 @@ async function handleGachaImport(url) {
         const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
         const baseParams = new URLSearchParams(urlObj.search);
         for (const banner of IMPORT_BANNER_TYPES) {
+            if (_importAborted) break;
             let endId='0', page=1, foundExisting=false;
-            while (!foundExisting) {
+            while (!foundExisting && !_importAborted) {
                 const params = new URLSearchParams(baseParams);
                 params.set('gacha_type', banner.id); params.set('size','20'); params.set('end_id', endId);
                 const targetUrl = `${baseUrl}?${params.toString()}`;
@@ -1028,6 +1041,18 @@ async function handleGachaImport(url) {
                 endId = list[list.length-1].id; page++;
                 await new Promise(r => setTimeout(r, 300));
             }
+        }
+        if (_importAborted) {
+            // User cancelled — save partial progress (if any) and show a friendly message.
+            if (allWishes.length > 0) {
+                const unique = Array.from(new Map(allWishes.map(w => [w.id, w])).values());
+                unique.sort((a,b) => new Date(b.time) - new Date(a.time));
+                state.gachaLog = { wishes: unique, lastImport: new Date().toISOString() };
+                saveState(); deriveStandardPool(); recomputePityState();
+            }
+            renderGachaStats(); renderCalendar(); renderStatusBar();
+            await showModal({type:'alert',title:'Import Cancelled',message: allWishes.length > 0 ? `Import cancelled. ${allWishes.length} wishes were saved before you cancelled — re-import later to continue.` : 'Import cancelled. No wishes were fetched.',confirmText:'OK'});
+            return;
         }
         // Final dedup by wish ID only (multi-pulls can share name+timestamp).
         const unique = Array.from(new Map(allWishes.map(w => [w.id, w])).values());
