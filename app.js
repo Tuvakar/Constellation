@@ -421,8 +421,9 @@ function analyzeBannerData(wishes, cfg) {
         return sa < sb ? -1 : (sa > sb ? 1 : 0);
     }
     const oldToNew = [...wishes].sort((a, b) => {
-        const ta = new Date(a.time).getTime(), tb = new Date(b.time).getTime();
-        if (ta !== tb) return ta - tb;              // oldest first
+        const ta = a.time ? new Date(a.time).getTime() : 0;
+        const tb = b.time ? new Date(b.time).getTime() : 0;
+        if (ta !== tb) return ta - tb;              // oldest first (NaN-safe: invalid/missing times sort as 0 = oldest)
         return cmpId(a.id, b.id);                    // within same timestamp: id ascending = pull order
     });
     let fives=[], fours=[], threes=[], p5=0, p4=0, guaranteed=false, fatePoints=0;
@@ -452,7 +453,7 @@ function analyzeBannerData(wishes, cfg) {
                 pd.win = null;
                 pd.outcome = null;
             } else { pd.win=true; pd.outcome='win'; }
-            fives.push(pd); p5=0;
+            fives.push(pd); p5=0; p4=0;
         }
         if (rarity===4) { fours.push(Object.assign({}, w, {pity:p4})); p4=0; }
         if (rarity===3) { threes.push(Object.assign({}, w, {pity:p5})); }
@@ -530,13 +531,13 @@ async function openSetResin() {
     if (v===false) return;
     const n = parseInt(v,10);
     if (isNaN(n)||n<0) { await showModal({type:'alert',title:'Invalid Input',message:'Please enter a valid number.',confirmText:'OK'}); return; }
-    state.resin.current = Math.min(n, state.resin.max||160);
+    state.resin.current = Math.min(n, state.resin.max||200);
     state.resin.lastSetAt = new Date().toISOString();
     saveState(); renderResinWidget(); renderStatusBar();
 }
 function renderResinWidget() {
     const el = $('resin-widget'); if (!el) return;
-    const cur = getCurrentResin(), max = state.resin.max||160, pct = (cur/max)*100;
+    const cur = getCurrentResin(), max = state.resin.max||200, pct = (cur/max)*100;
     el.innerHTML = `<div class="resin-display"><span class="resin-value">${cur}<span class="resin-max"> / ${max}</span></span></div><div class="resin-bar-wrap"><div class="resin-bar"><div class="resin-bar-fill" style="width:${pct}%"></div></div><div class="resin-time">${timeToFullResin()}</div></div><button class="btn btn-secondary" id="set-resin-btn">Set Resin</button>`;
     const b = $('set-resin-btn'); if (b) b.addEventListener('click', openSetResin);
 }
@@ -569,7 +570,7 @@ async function performDailyReset(isAuto) {
     const wasPerfect = state.dailyTasks.every(t => t.completed);
     if (wasPerfect) state.dailyStreak++; else state.dailyStreak = 0;
     state.dailyTasks.forEach(t => { t.streak = t.completed ? (t.streak||0)+1 : 0; t.completed = false; });
-    state.lastDailyReset = new Date().toISOString();
+    state.lastDailyReset = getLastDailyResetUTC().toISOString();
     const lastW = state.lastWeeklyReset ? new Date(state.lastWeeklyReset) : new Date(0);
     if (getLastWeeklyResetUTC() > lastW) {
         state.weeklyTasks.forEach(t => { t.streak = t.completed ? (t.streak||0)+1 : 0; t.completed = false; });
@@ -759,13 +760,13 @@ function rerenderPulls(bannerId) {
     const s = analyzeBannerData(bw, cfg); if (!s) return;
     const wrap = document.querySelector(`[data-pulls-banner="${bannerId}"]`);
     if (!wrap) return;
-    const pityCls = p => p>=74?'pity-high':p<=20?'pity-low':'pity-mid';
+    const pityCls = p => p>=cfg.softPity5?'pity-high':p<=20?'pity-low':'pity-mid';
     const sorted = sortPulls(s.five.list, _gachaSort);
     wrap.innerHTML = sorted.map(p => {
         const rarity = getItemRarity(p.name) || 5;
         const rarityTag = rarity === 5 ? '<span class="pull-rarity gold">5\u2605</span>' : '<span class="pull-rarity">5\u2605?</span>';
         let outcomeTag = '';
-        let pullCls = p.win ? 'win' : 'loss';
+        let pullCls = p.win === true ? 'win' : p.win === false ? 'loss' : '';
         if (p.outcome === 'win') { outcomeTag = '<span class="pull-tag win">WIN</span>'; }
         else if (p.outcome === 'loss') { outcomeTag = '<span class="pull-tag loss">LOSS</span>'; }
         else if (p.outcome === 'guarantee') { outcomeTag = '<span class="pull-tag guarantee">GUARANTEE</span>'; pullCls = 'win'; }
@@ -833,7 +834,7 @@ function renderGachaStats() {
     const allWishes = state.gachaLog.wishes;
     const primoIcon = `<svg viewBox="0 0 24 24" style="width:1em;height:1em;fill:var(--light-blue);vertical-align:-0.15em;margin-right:5px;"><path d="M12,1L9,9L1,12L9,15L12,23L15,15L23,12L15,9L12,1Z"/></svg>`;
     const f = (n,d) => (n||0).toFixed(d==null?2:d);
-    const pityCls = p => p>=74?'pity-high':p<=20?'pity-low':'pity-mid';
+    const pityCls = p => p>=cfg.softPity5?'pity-high':p<=20?'pity-low':'pity-mid';
     let html = '<div class="gacha-view-layout">';
     BANNERS.forEach(cfg => {
         const bw = allWishes.filter(w => w.gacha_type===cfg.id);
@@ -867,7 +868,7 @@ function renderGachaStats() {
                 const rarityTag = rarity === 5 ? '<span class="pull-rarity gold">5\u2605</span>' : '<span class="pull-rarity">5\u2605?</span>';
                 // Three outcomes: WIN (won 50/50), LOSS (lost 50/50), GUARANTEE (got featured because previous was a loss).
                 let outcomeTag = '';
-                let pullCls = p.win ? 'win' : 'loss';
+                let pullCls = p.win === true ? 'win' : p.win === false ? 'loss' : '';
                 if (p.outcome === 'win') { outcomeTag = '<span class="pull-tag win">WIN</span>'; }
                 else if (p.outcome === 'loss') { outcomeTag = '<span class="pull-tag loss">LOSS</span>'; }
                 else if (p.outcome === 'guarantee') { outcomeTag = '<span class="pull-tag guarantee">GUARANTEE</span>'; pullCls = 'win'; }
@@ -1071,7 +1072,7 @@ async function handleGachaImport(url) {
                 saveState(); deriveStandardPool(); recomputePityState();
             }
             renderGachaStats(); renderCalendar(); renderStatusBar();
-            await showModal({type:'alert',title:'Import Cancelled',message: allWishes.length > 0 ? `Import cancelled. ${allWishes.length} wishes were saved before you cancelled — re-import later to continue.` : 'Import cancelled. No wishes were fetched.',confirmText:'OK'});
+            await showModal({type:'alert',title:'Import Cancelled',message: (allWishes.length - existingCountBefore) > 0 ? `Import cancelled. ${(allWishes.length - existingCountBefore)} new wish${(allWishes.length - existingCountBefore) === 1 ? '' : 'es'} were saved before you cancelled — re-import later to continue.` : 'Import cancelled. No new wishes were fetched.',confirmText:'OK'});
             return;
         }
         // Compute how many genuinely NEW wishes were found (vs. existing before import).
@@ -1204,7 +1205,7 @@ function parsePaimonMoe(data) {
                 gacha_type: gachaType,
                 name: name,
                 item_type: p.type === 'character' ? 'Character' : 'Weapon',
-                rank_type: rarity ? String(rarity) : '0',
+                rank_type: rarity ? String(rarity) : (p.rarity ? String(p.rarity) : ''),
                 time: p.time,
             });
             perBannerSeq++;
@@ -1222,8 +1223,9 @@ function parseWishFile(text) {
     }
     // UIGF format (community standard): { info: {...}, list: [...] }
     if (data.info && Array.isArray(data.list)) {
+        let idx = 0; // per-wish counter for synthetic ids (avoids collisions for 10-pull duplicates missing an id)
         const wishes = data.list.map(w => ({
-            id: w.id || ('uigf_' + w.gacha_type + '_' + w.time.replace(/[^0-9]/g, '') + '_' + (w.name||'').replace(/\s/g, '_')),
+            id: w.id || ('uigf_' + w.gacha_type + '_' + w.time.replace(/[^0-9]/g, '') + '_' + (w.name||'').replace(/\s/g, '_') + '_' + String(idx++).padStart(4, '0')),
             gacha_type: w.uigf_gacha_type || w.gacha_type,
             name: w.name,
             item_type: w.item_type || '',
@@ -1311,6 +1313,7 @@ async function importWishFile(e) {
                 const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
                 if (existingCounts[key] > 0) { existingCounts[key]--; return; }
                 allWishes.push(w); added++;
+                existingIds.add(w.id);
             });
         }
         // Confirmation step (like paimon.moe): show how many new/replaced wishes and let
@@ -1357,8 +1360,15 @@ async function exportWishes() {
         await showModal({ type: 'alert', title: 'No Wishes', message: 'You have no wish history to export. Import your gacha log first.', confirmText: 'OK' });
         return;
     }
-    // Ask which format to export
-    const modalPromise = showModal({
+    // Ask which format to export. Use a self-resolving promise because the format
+    // buttons are custom (showModal's built-in Cancel/Confirm don't apply here — we
+    // need TWO choice buttons + a cancel). The previous version wired the custom
+    // buttons to only hide the modal, which never resolved showModal's promise and
+    // caused the export to hang forever (or default to UIGF on Cancel).
+    let _exportFormat = null;
+    let _resolveExport;
+    const exportChoice = new Promise(resolve => { _resolveExport = resolve; });
+    showModal({
         title: 'Export Format',
         message: 'Choose an export format:',
         customHtml: `<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
@@ -1367,18 +1377,16 @@ async function exportWishes() {
         </div>`,
         type: 'alert',
         confirmText: 'Cancel',
-    });
-    // Wire the custom buttons to set the format and close the modal.
+    }).then(() => { _resolveExport(null); }); // Cancel button = null (cancelled)
+    // Wire the custom buttons to set the format AND resolve the promise.
     setTimeout(() => {
         const uigfBtn = $('export-uigf'), constBtn = $('export-constellation');
         const modal = $('custom-modal');
-        if (uigfBtn) uigfBtn.onclick = () => { window._exportFormat = 'uigf'; modal.classList.remove('visible'); };
-        if (constBtn) constBtn.onclick = () => { window._exportFormat = 'constellation'; modal.classList.remove('visible'); };
+        if (uigfBtn) uigfBtn.onclick = () => { _exportFormat = 'uigf'; modal.classList.remove('visible'); _resolveExport('uigf'); };
+        if (constBtn) constBtn.onclick = () => { _exportFormat = 'constellation'; modal.classList.remove('visible'); _resolveExport('constellation'); };
     }, 100);
-    await modalPromise;
-    // Determine which was clicked (default to UIGF if cancelled)
-    const format = window._exportFormat || 'uigf';
-    window._exportFormat = null;
+    const format = await exportChoice;
+    if (!format) return; // user cancelled
 
     try {
         let exportData, filename;
@@ -1531,12 +1539,12 @@ function renderCalendar() {
         <div id="calendar-grid" class="calendar-grid"></div></div>`;
     const nextBtn = $('next-year-btn'); nextBtn.disabled = year >= getAppDate().getFullYear();
     nextBtn.addEventListener('click', () => { if (state.calendarDisplayYear < getAppDate().getFullYear()) { state.calendarDisplayYear++; saveState(); renderCalendar(); } });
-    $('prev-year-btn').addEventListener('click', () => { state.calendarDisplayYear--; saveState(); renderCalendar(); });
+    $('prev-year-btn').addEventListener('click', () => { if (state.calendarDisplayYear > 2020) { state.calendarDisplayYear--; saveState(); renderCalendar(); } });
     const grid = $('calendar-grid');
     if (!state.gachaLog || !state.gachaLog.wishes) { grid.innerHTML = `<p style="text-align:center;grid-column:1/-1;color:var(--secondary-text);">Import gacha log to see calendar.</p>`; return; }
     const wishesForYear = state.gachaLog.wishes.filter(w => new Date(w.time).getFullYear()===year);
     const pullsByDay = {};
-    wishesForYear.forEach(w => { const dk = w.time.split(' ')[0]; pullsByDay[dk] = (pullsByDay[dk]||0)+1; });
+    wishesForYear.forEach(w => { const dk = w.time.substring(0, 10); pullsByDay[dk] = (pullsByDay[dk]||0)+1; });
     const todayKey = toLocalISO(getAppDate());
     grid.innerHTML = months.map((name, month) => {
         const firstDay = new Date(year, month, 1).getDay();
@@ -1603,7 +1611,7 @@ function renderSettings() {
         <div class="settings-section"><h3>Data Backup</h3><div class="data-buttons"><button id="export-data-btn" class="btn btn-primary">Export Data</button><button id="import-data-btn" class="btn btn-secondary">Import Data</button><input type="file" id="import-data-file" accept=".json" style="display:none;"></div></div>
         <div class="settings-section"><h3>Danger Zone</h3><div class="controls-group" style="margin-top:0;"><button id="reset-all-btn" class="btn btn-clear">Clear &amp; Reset This Account</button></div></div>
         <div class="settings-section" style="text-align:center;color:var(--secondary-text);font-size:0.8em;opacity:0.7;">
-            <p>Constellation v12 &middot; timeout-protected import</p>
+            <p>Constellation v13 &middot; timeout-protected import</p>
             <p style="font-size:0.9em;margin-top:4px;">If the import hangs on "via corsproxy.io" for more than 10 seconds without falling back, you are viewing a CACHED old version. Hard-refresh (Ctrl+Shift+R / Cmd+Shift+R) to load the latest.</p>
         </div>
     </div>`;
@@ -1703,6 +1711,7 @@ async function importData(e) {
                 const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
                 if (existingCounts[key] > 0) { existingCounts[key]--; return; }
                 allWishes.push(w); added++;
+                existingIds.add(w.id);
             });
             allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
             state.gachaLog = { wishes: allWishes, lastImport: new Date().toISOString() };
