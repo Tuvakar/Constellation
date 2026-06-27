@@ -14,13 +14,14 @@ const THEME_KEY       = 'genshinTheme_v1';
 const ACCOUNTS_KEY    = 'genshinAccounts_v1';   // { activeId, list: [{id, name}] }
 // Each account's data lives under DATA_PREFIX + accountId.
 const DATA_PREFIX     = 'genshinTrackerData_v3_acc_';
-// CORS proxies — ordered by reliability. allorigins first (most reliable in testing),
-// with corsproxy.io and others as fallbacks. corsproxy.io frequently returns 403 or
-// hangs under load, so it's no longer the primary.
+// CORS proxies — corsproxy.io first (the original working order; it's fast when it
+// works), with fallbacks. The bulletproof Promise.race timeout in fetchWithRetry
+// means a hung proxy only costs 10s before falling through to the next one, so the
+// order is a preference, not a reliability critical-path.
 const CORS_PROXIES = [
+    (u) => 'https://corsproxy.io/?' + encodeURIComponent(u),
     (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
     (u) => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
-    (u) => 'https://corsproxy.io/?' + encodeURIComponent(u),
     (u) => 'https://corsproxy.org/?' + encodeURIComponent(u),
     (u) => 'https://thingproxy.freeboard.io/fetch/' + u,
 ];
@@ -972,7 +973,7 @@ async function handleGachaImport(url) {
     async function fetchWithRetry(targetUrl, label) {
         const maxAttempts = CORS_PROXIES.length;
         const ATTEMPT_TIMEOUT_MS = 10000;
-        const proxyNames = ['allorigins.win', 'codetabs.com', 'corsproxy.io', 'corsproxy.org', 'thingproxy'];
+        const proxyNames = ['corsproxy.io', 'allorigins.win', 'codetabs.com', 'corsproxy.org', 'thingproxy'];
         let lastErr = null;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             if (_importAborted) throw new Error('Import cancelled by user.');
