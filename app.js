@@ -483,27 +483,25 @@ function recomputePityState() {
 }
 async function checkUnknownItems() {
     const log = state.gachaLog; if (!log || !log.wishes) return;
-    const seen = new Set(), unknowns = [];
+    const seen = new Set();
     log.wishes.forEach(w => {
         if (seen.has(w.name)) return; seen.add(w.name);
         const r = getItemRarity(w.name);
-        if (r !== 4 && r !== 5) {
+        if (r !== 3 && r !== 4 && r !== 5) {
+            // Item not in database — seed silently from rank_type if available.
+            // NO popup — the database should categorize everything.
             const rank = parseInt(w.rank_type, 10);
-            if (rank === 4 || rank === 5) {
-                // Seed the override from rank_type so we don't block on every item.
+            if (rank === 3 || rank === 4 || rank === 5) {
                 if (!state.userItemOverrides) state.userItemOverrides = {};
-                if (!Object.prototype.hasOwnProperty.call(state.userItemOverrides, w.name)) state.userItemOverrides[w.name] = rank;
-            } else if (rank === 3) {
-                // 3★ items don't matter for pity tracking — seed them silently and move on.
-                if (!state.userItemOverrides) state.userItemOverrides = {};
-                if (!Object.prototype.hasOwnProperty.call(state.userItemOverrides, w.name)) state.userItemOverrides[w.name] = 3;
-            } else {
-                // Only prompt for items with no rank_type at all (truly unknown).
-                unknowns.push(w.name);
+                if (!Object.prototype.hasOwnProperty.call(state.userItemOverrides, w.name)) {
+                    state.userItemOverrides[w.name] = rank;
+                    itemDB[w.name] = rank;
+                }
             }
+            // If rank_type is also missing (0 or NaN), just skip — don't prompt.
         }
     });
-    for (const n of unknowns) await promptUnknownRarity(n);
+    saveState();
     deriveStandardPool(); recomputePityState();
 }
 
@@ -944,11 +942,12 @@ async function handleGachaImport(url) {
     }
     renderImportStatus('Starting import...');
     let allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
-    // Universal dedup: check by BOTH wish ID and normalized (gacha_type + name + time).
-    // This catches duplicates even when the same pull has different IDs across
-    // import sources (e.g. paimon.moe vs URL-based PowerShell import).
+    // Multiset dedup: count how many of each (gacha_type|name|time) exist.
+    // This allows duplicate items from 10-pulls (same name + timestamp) while
+    // still catching cross-source duplicates (paimon.moe vs URL import).
     const existingIds = new Set(allWishes.map(w => w.id));
-    const existingKeys = new Set(allWishes.map(w => `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`));
+    const existingCounts = {};
+    allWishes.forEach(w => { const k = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`; existingCounts[k] = (existingCounts[k]||0) + 1; });
 
     function setStatus(text) {
         const el = $('gacha-import-status'); if (el) el.textContent = text;
@@ -1004,23 +1003,18 @@ async function handleGachaImport(url) {
                     wish.name = resolveItemName(wish.name);
                     wish.gacha_type = String(wish.gacha_type);
                     if (wish.gacha_type === '400') wish.gacha_type = '301';
+                    if (existingIds.has(wish.id)) { foundExisting=true; break; }
                     const key = `${wish.gacha_type}|${normalizeNameKey(wish.name)}|${wish.time}`;
-                    if (existingIds.has(wish.id) || existingKeys.has(key)) { foundExisting=true; break; }
+                    if (existingCounts[key] > 0) { existingCounts[key]--; continue; }
                     allWishes.push(wish);
                     existingIds.add(wish.id);
-                    existingKeys.add(key);
                 }
                 endId = list[list.length-1].id; page++;
                 await new Promise(r => setTimeout(r, 300));
             }
         }
-        // Final dedup by normalized key (catches any remaining duplicates).
-        const seenKeys = new Set();
-        const unique = [];
-        allWishes.forEach(w => {
-            const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
-            if (!seenKeys.has(key)) { unique.push(w); seenKeys.add(key); }
-        });
+        // Final dedup by wish ID only (multi-pulls can share name+timestamp).
+        const unique = Array.from(new Map(allWishes.map(w => [w.id, w])).values());
         unique.sort((a,b) => new Date(b.time) - new Date(a.time));
         state.gachaLog = { wishes: unique, lastImport: new Date().toISOString() };
         saveState();
@@ -1031,12 +1025,7 @@ async function handleGachaImport(url) {
     } catch (err) {
         // Save partial progress so a mid-import failure doesn't lose what was fetched.
         if (allWishes.length > 0) {
-            const seenKeys = new Set();
-            const unique = [];
-            allWishes.forEach(w => {
-                const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
-                if (!seenKeys.has(key)) { unique.push(w); seenKeys.add(key); }
-            });
+            const unique = Array.from(new Map(allWishes.map(w => [w.id, w])).values());
             unique.sort((a,b) => new Date(b.time) - new Date(a.time));
             state.gachaLog = { wishes: unique, lastImport: new Date().toISOString() };
             saveState();
@@ -1165,29 +1154,36 @@ async function importWishFile(e) {
         const text = await file.text();
         const parsed = parseWishFile(text);
         const existingCount = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.length : 0;
-        // Offer Replace All (wipe + fresh import) or Merge (dedup + add new).
-        const modalPromise = showModal({
-            title: 'Import Wishes',
-            message: `Detected <b>${parsed.format}</b> format with <b>${parsed.wishes.length}</b> pulls.${existingCount > 0 ? `<br><br>You currently have <b>${existingCount}</b> wishes. Choose how to import:` : ''}`,
-            customHtml: existingCount > 0 ? `<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
-                <button class="btn btn-primary" id="import-replace" style="width:100%;">Replace All (recommended — wipes existing & imports fresh)</button>
-                <button class="btn btn-secondary" id="import-merge" style="width:100%;">Merge (add only new pulls, skip duplicates)</button>
-            </div>` : '',
-            type: 'alert',
-            confirmText: existingCount > 0 ? 'Cancel' : 'Import',
-        });
-        // Wire custom buttons if they exist.
-        let importMode = 'replace'; // default for no-existing-data case
+        // Determine import mode: Replace All or Merge.
+        let importMode = 'replace';
         if (existingCount > 0) {
-            setTimeout(() => {
-                const repBtn = $('import-replace'), mergeBtn = $('import-merge');
-                const modal = $('custom-modal');
-                if (repBtn) repBtn.onclick = () => { window._importMode = 'replace'; modal.classList.remove('visible'); };
-                if (mergeBtn) mergeBtn.onclick = () => { window._importMode = 'merge'; modal.classList.remove('visible'); };
-            }, 100);
-            await modalPromise;
-            importMode = window._importMode;
-            window._importMode = null;
+            // Show a custom modal with Replace / Merge / Cancel buttons (not showModal).
+            const modal = $('custom-modal');
+            const title = $('modal-title'), msg = $('modal-message'), input = $('modal-input'), custom = $('modal-custom-content');
+            const cancelB = $('modal-cancel-btn'), confirmB = $('modal-confirm-btn');
+            title.textContent = 'Import Wishes';
+            msg.innerHTML = `Detected <b>${parsed.format}</b> format with <b>${parsed.wishes.length}</b> pulls.<br><br>You currently have <b>${existingCount}</b> wishes. Choose how to import:`;
+            msg.style.display = 'block';
+            input.style.display = 'none';
+            custom.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+                <button class="btn btn-primary" id="import-replace-btn" style="width:100%;">Replace All (recommended — wipes existing &amp; imports fresh)</button>
+                <button class="btn btn-secondary" id="import-merge-btn" style="width:100%;">Merge (add only new pulls, skip duplicates)</button>
+            </div>`;
+            custom.style.display = 'block';
+            cancelB.style.display = 'inline-flex';
+            cancelB.textContent = 'Cancel';
+            confirmB.style.display = 'none';
+            modal.classList.add('visible');
+            importMode = await new Promise(resolve => {
+                const repBtn = $('import-replace-btn'), mergeBtn = $('import-merge-btn');
+                const done = (mode) => { modal.classList.remove('visible'); resolve(mode); };
+                if (repBtn) repBtn.onclick = () => done('replace');
+                if (mergeBtn) mergeBtn.onclick = () => done('merge');
+                cancelB.onclick = () => done(null);
+            });
+            cancelB.style.display = '';
+            confirmB.style.display = '';
+            cancelB.onclick = null;
             if (!importMode) return; // cancelled
         }
 
@@ -1202,21 +1198,21 @@ async function importWishFile(e) {
 
         let allWishes, added;
         if (importMode === 'replace') {
-            allWishes = [];
-            const seenKeys = new Set();
-            parsed.wishes.forEach(w => {
-                const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
-                if (!seenKeys.has(key)) { allWishes.push(w); seenKeys.add(key); }
-            });
+            // Dedup by wish ID only (multi-pulls share name+timestamp).
+            allWishes = Array.from(new Map(parsed.wishes.map(w => [w.id, w])).values());
             added = allWishes.length;
         } else {
             allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
             const existingIds = new Set(allWishes.map(w => w.id));
-            const existingKeys = new Set(allWishes.map(w => `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`));
+            // Multiset: count existing pulls per key (allows 10-pull duplicates).
+            const existingCounts = {};
+            allWishes.forEach(w => { const k = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`; existingCounts[k] = (existingCounts[k]||0) + 1; });
             added = 0;
             parsed.wishes.forEach(w => {
+                if (existingIds.has(w.id)) return;
                 const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
-                if (!existingIds.has(w.id) && !existingKeys.has(key)) { allWishes.push(w); added++; existingKeys.add(key); }
+                if (existingCounts[key] > 0) { existingCounts[key]--; return; }
+                allWishes.push(w); added++;
             });
         }
         allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -1572,11 +1568,14 @@ async function importData(e) {
                 if (w.gacha_type === '400') w.gacha_type = '301';
             });
             const existingIds = new Set(allWishes.map(w => w.id));
-            const existingKeys = new Set(allWishes.map(w => `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`));
+            const existingCounts = {};
+            allWishes.forEach(w => { const k = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`; existingCounts[k] = (existingCounts[k]||0) + 1; });
             let added = 0;
             wishParsed.wishes.forEach(w => {
+                if (existingIds.has(w.id)) return;
                 const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
-                if (!existingIds.has(w.id) && !existingKeys.has(key)) { allWishes.push(w); added++; existingKeys.add(key); }
+                if (existingCounts[key] > 0) { existingCounts[key]--; return; }
+                allWishes.push(w); added++;
             });
             allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
             state.gachaLog = { wishes: allWishes, lastImport: new Date().toISOString() };
