@@ -9,8 +9,7 @@
 // ---------- Constants ----------
 const STORAGE_KEY     = 'genshinTrackerData_v3';
 const OLD_STORAGE_KEY = 'genshinTrackerData_v2_stable';
-const ITEM_DB_KEY     = 'genshinItemDB_v2';
-const MAP_DATA_KEY    = 'genshinMapData_v1';
+const ITEM_DB_KEY     = 'genshinItemDB_v4';
 const THEME_KEY       = 'genshinTheme_v1';
 const ACCOUNTS_KEY    = 'genshinAccounts_v1';   // { activeId, list: [{id, name}] }
 // Each account's data lives under DATA_PREFIX + accountId.
@@ -53,296 +52,12 @@ const IMPORT_BANNER_TYPES = [
     { id:'100', name:'Novice' },
 ];
 
-const MAP_CATEGORIES = ['chests','quests','oculi','other'];
-const MAP_CAT_LABELS = { chests:'Chests', quests:'Quests', oculi:'Oculi', other:'Other' };
 
-const MAP_DATA_FALLBACK = {
-    Mondstadt: { chests:1800, quests:1680, oculi:170, other:200 },
-    Liyue:     { chests:2700, quests:2160, oculi:300, other:300 },
-    Inazuma:   { chests:2160, quests:1800, oculi:180, other:400 },
-    Sumeru:    { chests:3240, quests:2520, oculi:270, other:500 },
-    Fontaine:  { chests:2880, quests:2160, oculi:220, other:600 },
-    Natlan:    { chests:2000, quests:1800, oculi:150, other:400 },
-};
 
-const ITEM_DB_FALLBACK = {
-    'A Thousand Floating Dreams':5,
-    'Akuoumaru':4,
-    'Albedo':5,
-    'Alhaitham':5,
-    'Alley Hunter':4,
-    'Aloy':5,
-    'Amber':4,
-    'Amber Catalyst':3,
-    'Amenoma Kageuchi':4,
-    'Amos\' Bow':5,
-    'Apprentice\'s Notes':1,
-    'Aqua Simulacra':5,
-    'Aquila Favonia':5,
-    'Arataki Itto':5,
-    'Arlecchino':5,
-    'Baizhu':5,
-    'Ballad Of The Fjords':4,
-    'Ballad of the Boundless Blue':4,
-    'Barbara':4,
-    'Beacon of the Reed Sea':5,
-    'Beginner\'s Protector':1,
-    'Beidou':4,
-    'Bennett':4,
-    'Black Tassel':3,
-    'Blackcliff Agate':4,
-    'Blackcliff Longsword':4,
-    'Blackcliff Pole':4,
-    'Blackcliff Slasher':4,
-    'Blackcliff Warbow':4,
-    'Bloodtainted Greatsword':3,
-    'Calamity Queller':5,
-    'Candace':4,
-    'Cashflow Supervision':5,
-    'Charlotte':4,
-    'Chevreuse':4,
-    'Chiori':5,
-    'Chongyun':4,
-    'Cinnabar Spindle':4,
-    'Clorinde':5,
-    'Collei':4,
-    'Compound Bow':4,
-    'Cool Steel':3,
-    'Crane\'s Echoing Call':5,
-    'Crescent Pike':4,
-    'Crimson Moon\'s Semblance':5,
-    'Cyno':5,
-    'Dark Iron Sword':3,
-    'Deathmatch':4,
-    'Debate Club':3,
-    'Dehya':5,
-    'Dialogues of the Desert Sages':4,
-    'Diluc':5,
-    'Diona':4,
-    'Dodoco Tales':4,
-    'Dori':4,
-    'Dragon\'s Bane':4,
-    'Dragonspine Spear':4,
-    'Dull Blade':1,
-    'Ebony Bow':3,
-    'Elegy for the End':5,
-    'Emerald Orb':3,
-    'Emilie':5,
-    'End of the Line':4,
-    'Engulfing Lightning':5,
-    'Eula':5,
-    'Everlasting Moonglow':5,
-    'Eye of Perception':4,
-    'Fading Twilight':4,
-    'Faruzan':4,
-    'Favonius Codex':4,
-    'Favonius Greatsword':4,
-    'Favonius Lance':4,
-    'Favonius Sword':4,
-    'Favonius Warbow':4,
-    'Ferrous Shadow':3,
-    'Festering Desire':4,
-    'Fillet Blade':3,
-    'Finale Of The Deep':4,
-    'Fischl':4,
-    'Fleuve Cendre Ferryman':4,
-    'Flowing Purity':4,
-    'Forest Regalia':4,
-    'Freedom-Sworn':5,
-    'Freminet':4,
-    'Frostbearer':4,
-    'Fruit of Fulfillment':4,
-    'Furina':5,
-    'Gaming':4,
-    'Ganyu':5,
-    'Gorou':4,
-    'Hakushin Ring':4,
-    'Halberd':3,
-    'Hamayumi':4,
-    'Haran Geppaku Futsu':5,
-    'Harbinger of Dawn':3,
-    'Hu Tao':5,
-    'Hunter\'s Bow':1,
-    'Hunter\'s Path':5,
-    'Ibis Piercer':4,
-    'Iron Point':2,
-    'Iron Sting':4,
-    'Jadefall\'s Splendor':5,
-    'Jean':5,
-    'Kachina':4,
-    'Kaedehara Kazuha':5,
-    'Kaeya':4,
-    'Kagotsurube Isshin':4,
-    'Kagura\'s Verity':5,
-    'Kamisato Ayaka':5,
-    'Kamisato Ayato':5,
-    'Katsuragikiri Nagamasa':4,
-    'Kaveh':4,
-    'Keqing':5,
-    'Key of Khaj-Nisut':5,
-    'King\'s Squire':4,
-    'Kinich':5,
-    'Kirara':4,
-    'Kitain Cross Spear':4,
-    'Klee':5,
-    'Kujou Sara':4,
-    'Kuki Shinobu':4,
-    'Layla':4,
-    'Light of Foliar Incision':5,
-    'Lion\'s Roar':4,
-    'Lisa':4,
-    'Lithic Blade':4,
-    'Lithic Spear':4,
-    'Lost Prayer to the Sacred Winds':5,
-    'Lumidouce Elegy':5,
-    'Luxurious Sea-Lord':4,
-    'Lynette':4,
-    'Lyney':5,
-    'Magic Guide':3,
-    'Mailed Flower':4,
-    'Makhaira Aquamarine':4,
-    'Mappa Mare':4,
-    'Memory of Dust':5,
-    'Messenger':3,
-    'Mika':4,
-    'Missive Windspear':4,
-    'Mistsplitter Reforged':5,
-    'Mitternachts Waltz':4,
-    'Mona':5,
-    'Moonpiercer':5,
-    'Mouun\'s Moon':4,
-    'Mualani':5,
-    'Nahida':5,
-    'Navia':5,
-    'Neuvillette':5,
-    'Nilou':5,
-    'Ningguang':4,
-    'Noelle':4,
-    'Oathsworn Eye':4,
-    'Old Merc\'s Pal':2,
-    'Otherworldly Story':3,
-    'Pocket Grimoire':2,
-    'Polar Star':5,
-    'Portable Power Saw':4,
-    'Predator':4,
-    'Primordial Jade Cutter':5,
-    'Primordial Jade Winged-Spear':5,
-    'Prospector\'s Drill':4,
-    'Prototype Amber':4,
-    'Prototype Archaic':4,
-    'Prototype Crescent':4,
-    'Prototype Rancour':4,
-    'Prototype Starglitter':4,
-    'Qiqi':5,
-    'Quartz':3,
-    'Raiden Shogun':5,
-    'Rainslasher':4,
-    'Range Gauge':4,
-    'Raven Bow':3,
-    'Razor':4,
-    'Recurve Bow':3,
-    'Redhorn Stonethresher':5,
-    'Rightful Reward':4,
-    'Rosaria':4,
-    'Royal Bow':4,
-    'Royal Greatsword':4,
-    'Royal Grimoire':4,
-    'Royal Longsword':4,
-    'Royal Spear':4,
-    'Rust':4,
-    'Sacrificial Bow':4,
-    'Sacrificial Fragments':4,
-    'Sacrificial Greatsword':4,
-    'Sacrificial Jade':4,
-    'Sacrificial Sword':4,
-    'Sangonomiya Kokomi':5,
-    'Sapwood Blade':4,
-    'Sayu':4,
-    'Scion Of The Blazing Sun':4,
-    'Seasoned Hunter\'s Bow':2,
-    'Serpent Spine':4,
-    'Sethos':4,
-    'Sharpshooter\'s Oath':3,
-    'Shenhe':5,
-    'Shikanoin Heizou':4,
-    'Sigewinne':5,
-    'Silver Sword':2,
-    'Skyrider Greatsword':3,
-    'Skyrider Sword':3,
-    'Skyward Atlas':5,
-    'Skyward Blade':5,
-    'Skyward Harp':5,
-    'Skyward Pride':5,
-    'Skyward Spine':5,
-    'Slingshot':3,
-    'Snow-Tombed Starsilver':4,
-    'Solar Pearl':4,
-    'Song Of Stillness':4,
-    'Song of Broken Pines':5,
-    'Splendor of Tranquil Waters':5,
-    'Staff of Homa':5,
-    'Sucrose':4,
-    'Summit Shaper':5,
-    'Sword of Descension':4,
-    'Sword of Narzissenkreuz':4,
-    'Talking Stick':4,
-    'Tartaglia':5,
-    'The Alley Flash':4,
-    'The Bell':4,
-    'The Black Sword':4,
-    'The Catch':4,
-    'The Dockhand\'s Assistant':4,
-    'The First Great Magic':5,
-    'The Flute':4,
-    'The Stringless':4,
-    'The Unforged':5,
-    'The Viridescent Hunt':4,
-    'The Widsith':4,
-    'Thoma':4,
-    'Thrilling Tales of Dragon Slayers':3,
-    'Thundering Pulse':5,
-    'Tidal Shadow':4,
-    'Tighnari':5,
-    'Tome of the Eternal Flow':5,
-    'Toukabou Shigure':4,
-    'Traveler':5,
-    'Traveler\'s Handy Sword':3,
-    'Tulaytullah\'s Remembrance':5,
-    'Twin Nephrite':3,
-    'Ultimate Overlord\'s Mega Magic Sword':4,
-    'Uraku Misugiri':5,
-    'Venti':5,
-    'Verdict':5,
-    'Vortex Vanquisher':5,
-    'Wanderer':5,
-    'Wandering Evenstar':4,
-    'Waster Greatsword':1,
-    'Wavebreaker\'s Fin':4,
-    'White Iron Greatsword':3,
-    'White Tassel':3,
-    'Whiteblind':4,
-    'Windblume Ode':4,
-    'Wine and Song':4,
-    'Wolf\'s Gravestone':5,
-    'Wolf-Fang':4,
-    'Wriothesley':5,
-    'Xiangling':4,
-    'Xianyun':5,
-    'Xiao':5,
-    'Xingqiu':4,
-    'Xinyan':4,
-    'Xiphos\' Moonlight':4,
-    'Yae Miko':5,
-    'Yanfei':4,
-    'Yaoyao':4,
-    'Yelan':5,
-    'Yoimiya':5,
-    'Yun Jin':4,
-    'Zhongli':5,
-};
+const ITEM_DB_FALLBACK = {}; // Empty — database is fetched live from theBowja/genshin-db GitHub repo
 
 // ---------- State ----------
-let state, itemDB = {}, _standardPool = new Set(), _mapData = null;
+let state, itemDB = {}, _standardPool = new Set();
 let _activeTheme = 'Anemo', _customAccent = null, _dailyEditMode = false, _weeklyEditMode = false, _gachaSort = 'newest';
 let _viewAnimating = false, _resinInterval = null;
 
@@ -353,9 +68,6 @@ function defaultPityState() {
         '200': { current5:0, current4:0 },
         '500': { current5:0, current4:0 },
     };
-}
-function defaultMapCompletion() {
-    const m = {}; Object.keys(MAP_DATA_FALLBACK).forEach(n => m[n] = { chests:0, quests:0, oculi:0, other:0 }); return m;
 }
 function getDefaultState() {
     const now = new Date().toISOString();
@@ -379,8 +91,6 @@ function getDefaultState() {
         gachaLog:null, calendarDisplayYear:new Date().getFullYear(), customDate:null,
         pityState: defaultPityState(),
         userItemOverrides: {},
-        mapCompletion: defaultMapCompletion(),
-        mapOverrides: {},
         welkinActive:false, otherDailyPrimos:10,
         resin: { current:0, max:200, lastSetAt:now },
     };
@@ -410,9 +120,6 @@ function mergeDefaults(parsed) {
     if (!merged.resin.max || merged.resin.max === 160) merged.resin.max = 200;
     merged.pityState = Object.assign({}, def.pityState, parsed.pityState || {});
     Object.keys(def.pityState).forEach(k => { if (!merged.pityState[k]) merged.pityState[k] = def.pityState[k]; });
-    if (!merged.mapCompletion) merged.mapCompletion = def.mapCompletion;
-    if (!merged.mapOverrides) merged.mapOverrides = def.mapOverrides;
-    Object.keys(def.mapCompletion).forEach(n => { if (!merged.mapCompletion[n]) merged.mapCompletion[n] = { chests:0, quests:0, oculi:0, other:0 }; });
     if (!Array.isArray(merged.dailyTasks) || merged.dailyTasks.length===0) merged.dailyTasks = def.dailyTasks;
     if (!Array.isArray(merged.weeklyTasks) || merged.weeklyTasks.length===0) merged.weeklyTasks = def.weeklyTasks;
     if (typeof merged.calendarDisplayYear !== 'number') merged.calendarDisplayYear = new Date().getFullYear();
@@ -662,14 +369,23 @@ async function loadItemDB() {
     // If we have a stale cache, use it immediately while refreshing in the background.
     if (cached && cached.map) Object.assign(itemDB, cached.map);
     deriveStandardPool();
-    // Background refresh from genshin.jmp.blue (keeps DB current with every new patch).
+    // Background refresh from theBowja/genshin-db GitHub repo (supports CORS, always up-to-date).
+    // raw.githubusercontent.com returns Access-Control-Allow-Origin: * so no proxy needed.
     try {
         const map = {};
-        const fetchRarities = async (ids, baseUrl) => {
-            for (let i = 0; i < ids.length; i += 10) {
-                const batch = ids.slice(i, i + 10);
-                const settled = await Promise.allSettled(batch.map(id =>
-                    fetch(CORS_PROXY + encodeURIComponent(`${baseUrl}/${id}`)).then(r => r.ok ? r.json() : null)
+        const base = 'https://raw.githubusercontent.com/theBowja/genshin-db/main/src/data/English';
+        // Fetch the file tree to discover all character/weapon filenames.
+        const treeRes = await fetch('https://api.github.com/repos/theBowja/genshin-db/git/trees/main?recursive=1');
+        if (treeRes.ok) {
+            const tree = await treeRes.json();
+            const charFiles = tree.tree.filter(f => f.path.startsWith('src/data/English/characters/') && f.path.endsWith('.json'));
+            const weapFiles = tree.tree.filter(f => f.path.startsWith('src/data/English/weapons/') && f.path.endsWith('.json'));
+            const allFiles = [...charFiles, ...weapFiles];
+            // Fetch in batches of 20 to avoid rate limits.
+            for (let i = 0; i < allFiles.length; i += 20) {
+                const batch = allFiles.slice(i, i + 20);
+                const settled = await Promise.allSettled(batch.map(f =>
+                    fetch(`${base}/${f.path.replace('src/data/English/', '')}`).then(r => r.ok ? r.json() : null)
                 ));
                 settled.forEach(s => {
                     if (s.status === 'fulfilled' && s.value && s.value.name) {
@@ -677,20 +393,9 @@ async function loadItemDB() {
                     }
                 });
             }
-        };
-        const [charRes, weapRes] = await Promise.all([
-            fetch(CORS_PROXY + encodeURIComponent('https://genshin.jmp.blue/characters')),
-            fetch(CORS_PROXY + encodeURIComponent('https://genshin.jmp.blue/weapons')),
-        ]);
-        if (charRes.ok && weapRes.ok) {
-            const charIds = await charRes.json(), weapIds = await weapRes.json();
-            await fetchRarities(charIds, 'https://genshin.jmp.blue/characters');
-            await fetchRarities(weapIds, 'https://genshin.jmp.blue/weapons');
-            // Merge fetched data on top of the fallback (fetched takes priority).
             Object.assign(itemDB, map);
             try { localStorage.setItem(ITEM_DB_KEY, JSON.stringify({map:itemDB, fetchedAt:new Date().toISOString()})); } catch(e){}
             deriveStandardPool();
-            // If the gacha view is open, re-render with the updated rarities.
             if ($('view-gacha').classList.contains('active')) renderGachaStats();
         }
     } catch(e) { console.warn('Rarity DB background refresh failed, using cached/fallback.', e); }
@@ -1323,50 +1028,43 @@ async function handleGachaImport(url) {
 
 // ---------- Wish data import/export (paimon.moe + universal format) ----------
 
-// Build a reverse map: paimon.moe snake_case ID -> display name.
-// Uses ITEM_DB_FALLBACK keys (display names) converted to snake_case.
-let _paimonIdMap = null;
-function buildPaimonIdMap() {
-    if (_paimonIdMap) return _paimonIdMap;
-    _paimonIdMap = {};
-    Object.keys(ITEM_DB_FALLBACK).forEach(name => {
-        const id = nameToSnakeCase(name);
-        _paimonIdMap[id] = name;
+// Universal name resolution: builds a reverse lookup from the live database.
+// Any name (paimon.moe snake_case, UIGF display name, etc.) is normalized to a
+// canonical form and matched against the database. No hardcoded aliases needed.
+function normalizeNameKey(name) {
+    return (name || '').toLowerCase()
+        .replace(/['\u2019\u2018`]/g, '')   // strip apostrophes/quotes
+        .replace(/[^a-z0-9]+/g, '')            // strip all non-alphanumeric (spaces, underscores, hyphens)
+        .trim();
+}
+let _nameLookup = null;
+function buildNameLookup() {
+    if (_nameLookup) return _nameLookup;
+    _nameLookup = {};
+    // Build from the live itemDB (fetched from genshin-db).
+    Object.keys(itemDB).forEach(canonicalName => {
+        _nameLookup[normalizeNameKey(canonicalName)] = canonicalName;
     });
-    // Common extra aliases paimon.moe uses that may not match simple conversion.
-    const aliases = {
-        'traveler_anemo': 'Traveler', 'traveler_geo': 'Traveler', 'traveler_electro': 'Traveler', 'traveler_dendro': 'Traveler', 'traveler_hydro': 'Traveler', 'traveler_pyro': 'Traveler',
-        'raiden_shogun': 'Raiden Shogun', 'sangonomiya_kokomi': 'Sangonomiya Kokomi', 'kaedehara_kazuha': 'Kaedehara Kazuha', 'kamisato_ayaka': 'Kamisato Ayaka', 'kamisato_ayato': 'Kamisato Ayato',
-        'arataki_itto': 'Arataki Itto', 'kuki_shinobu': 'Kuki Shinobu', 'shikanoin_heizou': 'Shikanoin Heizou', 'yumemizuki_mizuki': 'Yumemizuki Mizuki',
-        'tighnari': 'Tighnari', 'dehya': 'Dehya', 'nilou': 'Nilou', 'cyno': 'Cyno', 'nahida': 'Nahida', 'layla': 'Layla', 'faruzan': 'Faruzan',
-        'alhaitham': 'Alhaitham', 'kaveh': 'Kaveh', 'baizhu': 'Baizhu', 'kirara': 'Kirara', 'collei': 'Collei', 'dori': 'Dori',
-        'lyney': 'Lyney', 'lynette': 'Lynette', 'neuvillette': 'Neuvillette', 'furina': 'Furina', 'navia': 'Navia', 'wriothesley': 'Wriothesley',
-        'clorinde': 'Clorinde', 'chiori': 'Chiori', 'arlecchino': 'Arlecchino', 'sigewinne': 'Sigewinne', 'emilie': 'Emilie', 'xianyun': 'Xianyun', 'gaming': 'Gaming', 'chevreuse': 'Chevreuse',
-        'mualani': 'Mualani', 'kinich': 'Kinich', 'chasca': 'Chasca', 'mavuika': 'Mavuika', 'citlali': 'Citlali', 'xilonen': 'Xilonen', 'kachina': 'Kachina', 'ororon': 'Ororon', 'ifá': 'Ifa', 'ifa': 'Ifa',
-        'sethos': 'Sethos', 'skirk': 'Skirk', 'dahlia': 'Dahlia', 'dalton': 'Dalton', 'ineffa': 'Ineffa', 'escoffier': 'Escoffier',
-        'amos_bow': "Amos\u2019 Bow", 'wolf_gravestone': "Wolf\u2019s Gravestone", 'hunter_path': "Hunter\u2019s Path", 'jadefall_splendor': "Jadefall\u2019s Splendor",
-        'crimson_moons_semblance': "Crimson Moon\u2019s Semblance", 'tulaytullahs_remembrance': "Tulaytullah\u2019s Remembrance",
-        'nocturnes_curtain_call': "Nocturne\u2019s Curtain Call", 'waveriding_whirl': 'Waveriding Whirl', 'mountain-bracing_bolt': 'Mountain-Bracing Bolt',
-        'lightbearing_moonshard': 'Lightbearing Moonshard', 'fractured_halo': 'Fractured Halo', 'azurelight': 'Azurelight',
-        'varesa': 'Varesa', 'iansan': 'Iansan', 'aino': 'Aino', 'illuga': 'Illuga', 'columbina': 'Columbina', 'zibai': 'Zibai',
-        'lan_yan': 'Lan Yan', 'sharpshooters_oath': "Sharpshooter\u2019s Oath", 'dragons_bane': "Dragon\u2019s Bane",
-        'mitternachts_waltz': 'Mitternachts Waltz', 'wandering_evenstar': 'Wandering Evenstar', 'xiphos_moonlight': 'Xiphos Moonlight',
-        'lions_roar': "Lion\u2019s Roar", 'mountain_bracing_bolt': 'Mountain-Bracing Bolt',
-    };
-    Object.keys(aliases).forEach(k => { _paimonIdMap[k] = aliases[k]; });
-    return _paimonIdMap;
+    // Also add user overrides.
+    if (state && state.userItemOverrides) {
+        Object.keys(state.userItemOverrides).forEach(name => {
+            _nameLookup[normalizeNameKey(name)] = name;
+        });
+    }
+    return _nameLookup;
 }
-function nameToSnakeCase(name) {
-    return name.toLowerCase()
-        .replace(/['\u2019]/g, '')   // strip apostrophes
-        .replace(/[^a-z0-9]+/g, '_') // non-alphanumeric -> _
-        .replace(/^_+|_+$/g, '');    // trim underscores
-}
-function paimonIdToName(id) {
-    const map = buildPaimonIdMap();
-    if (map[id]) return map[id];
-    // Fallback: title-case the snake_case ID.
-    return id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+function resolveItemName(rawName) {
+    if (!rawName) return rawName;
+    const lookup = buildNameLookup();
+    const key = normalizeNameKey(rawName);
+    // Direct match in the database.
+    if (lookup[key]) return lookup[key];
+    // Try converting snake_case to title-case as a fallback.
+    const titleCased = rawName.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const titleKey = normalizeNameKey(titleCased);
+    if (lookup[titleKey]) return lookup[titleKey];
+    // Not in the database — return the title-cased version.
+    return titleCased;
 }
 
 // Parse a paimon.moe export file and return an array of wishes in our format.
@@ -1387,7 +1085,7 @@ function parsePaimonMoe(data) {
             // Event 2) is merged into 301 (Character Event) since we track them together.
             const rawCode = p.code || bannerKeys[bk];
             const gachaType = (rawCode === '400') ? '301' : rawCode;
-            const name = paimonIdToName(p.id);
+            const name = resolveItemName(p.id);
             const rarity = getItemRarity(name);
             // If rarity is unknown (not in DB), use '0' so checkUnknownItems prompts the user.
             wishes.push({
@@ -1433,7 +1131,7 @@ function parseWishFile(text) {
     throw new Error('Unrecognised wish data format. Supported: paimon.moe, UIGF, Constellation universal, or raw wish array.');
 }
 
-// Import wishes from a file (paimon.moe or universal format). Merges with existing.
+// Import wishes from a file (paimon.moe, UIGF, universal, or raw array). Merges or replaces.
 async function importWishFile(e) {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
@@ -1441,33 +1139,68 @@ async function importWishFile(e) {
     try {
         const text = await file.text();
         const parsed = parseWishFile(text);
-        const ok = await showModal({
+        const existingCount = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.length : 0;
+        // Offer Replace All (wipe + fresh import) or Merge (dedup + add new).
+        const modalPromise = showModal({
             title: 'Import Wishes',
-            message: `Detected <b>${parsed.format}</b> format with <b>${parsed.wishes.length}</b> pulls.${parsed.wishes.length > 0 ? '<br><br>This will merge with your existing wish history (duplicates are skipped by pull ID).' : '<br><br>No valid pulls found.'}`,
-            type: 'confirm',
-            confirmText: 'Import',
+            message: `Detected <b>${parsed.format}</b> format with <b>${parsed.wishes.length}</b> pulls.${existingCount > 0 ? `<br><br>You currently have <b>${existingCount}</b> wishes. Choose how to import:` : ''}`,
+            customHtml: existingCount > 0 ? `<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+                <button class="btn btn-primary" id="import-replace" style="width:100%;">Replace All (recommended — wipes existing & imports fresh)</button>
+                <button class="btn btn-secondary" id="import-merge" style="width:100%;">Merge (add only new pulls, skip duplicates)</button>
+            </div>` : '',
+            type: 'alert',
+            confirmText: existingCount > 0 ? 'Cancel' : 'Import',
         });
-        if (!ok) return;
+        // Wire custom buttons if they exist.
+        let importMode = 'replace'; // default for no-existing-data case
+        if (existingCount > 0) {
+            setTimeout(() => {
+                const repBtn = $('import-replace'), mergeBtn = $('import-merge');
+                const modal = $('custom-modal');
+                if (repBtn) repBtn.onclick = () => { window._importMode = 'replace'; modal.classList.remove('visible'); };
+                if (mergeBtn) mergeBtn.onclick = () => { window._importMode = 'merge'; modal.classList.remove('visible'); };
+            }, 100);
+            await modalPromise;
+            importMode = window._importMode;
+            window._importMode = null;
+            if (!importMode) return; // cancelled
+        }
 
-        let allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
-        // Dedup by BOTH wish ID and a normalized (gacha_type + name + time) key.
-        // Names are normalized (apostrophes stripped, lowercased) so that
-        // "Nocturne's Curtain Call" and "Nocturnes Curtain Call" are treated as the same item.
-        const normName = n => (n || '').toLowerCase().replace(/['\u2019]/g, '');
-        const existingIds = new Set(allWishes.map(w => w.id));
-        const existingKeys = new Set(allWishes.map(w => `${w.gacha_type}|${normName(w.name)}|${w.time}`));
-        let added = 0;
+        // Universal name resolution: resolve every wish name to its canonical form
+        // using the live database. This handles apostrophes, snake_case, etc. universally.
+        _nameLookup = null; // force rebuild with current DB
         parsed.wishes.forEach(w => {
-            const key = `${w.gacha_type}|${normName(w.name)}|${w.time}`;
-            if (!existingIds.has(w.id) && !existingKeys.has(key)) { allWishes.push(w); added++; existingKeys.add(key); }
+            w.name = resolveItemName(w.name);
+            w.gacha_type = String(w.gacha_type);
+            if (w.gacha_type === '400') w.gacha_type = '301';
         });
+
+        let allWishes, added;
+        if (importMode === 'replace') {
+            allWishes = [];
+            const seenKeys = new Set();
+            parsed.wishes.forEach(w => {
+                const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
+                if (!seenKeys.has(key)) { allWishes.push(w); seenKeys.add(key); }
+            });
+            added = allWishes.length;
+        } else {
+            allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
+            const existingIds = new Set(allWishes.map(w => w.id));
+            const existingKeys = new Set(allWishes.map(w => `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`));
+            added = 0;
+            parsed.wishes.forEach(w => {
+                const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
+                if (!existingIds.has(w.id) && !existingKeys.has(key)) { allWishes.push(w); added++; existingKeys.add(key); }
+            });
+        }
         allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
         state.gachaLog = { wishes: allWishes, lastImport: new Date().toISOString() };
         saveState();
         deriveStandardPool();
         await checkUnknownItems();
         renderGachaStats(); renderCalendar(); renderStatusBar();
-        await showModal({ type: 'alert', title: 'Import Complete', message: `Imported ${added} new wish${added === 1 ? '' : 'es'} (${allWishes.length} total).`, confirmText: 'OK' });
+        await showModal({ type: 'alert', title: 'Import Complete', message: `${importMode === 'replace' ? 'Replaced with' : 'Added'} ${added} wish${added === 1 ? '' : 'es'} (${allWishes.length} total).`, confirmText: 'OK' });
     } catch (err) {
         await showModal({ type: 'alert', title: 'Import Failed', message: err.message || String(err), confirmText: 'OK' });
         renderGachaStats();
@@ -1566,22 +1299,13 @@ async function exportWishes() {
 }
 
 // ---------- Primos ----------
-function getMapRemainingPrimos() {
-    const data = getMapData(); let total = 0;
-    Object.keys(data).forEach(nation => {
-        const cats = data[nation], comp = (state.mapCompletion && state.mapCompletion[nation]) || {};
-        Object.keys(cats).forEach(cat => { total += Math.round((cats[cat]||0) * (1 - ((comp[cat]!=null?comp[cat]:0)/100))); });
-    });
-    return total;
-}
 function renderPrimos() {
     const el = $('view-primos'); if (!el) return;
-    const mapRem = getMapRemainingPrimos();
     const days = 30;
     const dailyEst = days*60 + days*(state.otherDailyPrimos||0);
     const welkinEst = state.welkinActive ? days*90 : 0;
     const current = state.primogemCount||0;
-    const total = current + mapRem + dailyEst + welkinEst;
+    const total = current + dailyEst + welkinEst;
     const goal = state.primogemGoal||0;
     const remaining = total - goal;
     const pulls = Math.floor(total/PRIMO_PER_PULL);
@@ -1603,7 +1327,6 @@ function renderPrimos() {
                 <h3>Expected Income</h3>
                 <div class="income-table">
                     <div class="income-row"><span class="income-label">Current saved</span><span class="income-val">${current.toLocaleString()}</span></div>
-                    <div class="income-row"><span class="income-label">Map exploration</span><span class="income-val pos">+ ${mapRem.toLocaleString()}</span></div>
                     <div class="income-row"><span class="income-label">Daily commissions (30d)</span><span class="income-val pos">+ ${dailyEst.toLocaleString()}</span></div>
                     <div class="income-row"><span class="income-label"><label class="welkin-toggle"><input type="checkbox" id="welkin-toggle" ${state.welkinActive?'checked':''}> Welkin Moon (30d)</label></span><span class="income-val pos">+ ${welkinEst.toLocaleString()}</span></div>
                     <div class="income-row"><span class="income-label">Other daily <input type="number" id="other-daily-input" value="${state.otherDailyPrimos||0}" min="0" class="other-daily-input"></span><span class="income-val" style="color:var(--secondary-text)">/day</span></div>
@@ -1646,167 +1369,11 @@ async function openSubtractPrimos() {
 }
 
 // ---------- Map ----------
-function getMapData() {
-    const base = _mapData || MAP_DATA_FALLBACK;
-    const merged = {};
-    Object.keys(base).forEach(nation => {
-        const ov = state.mapOverrides && state.mapOverrides[nation];
-        merged[nation] = ov ? Object.assign({}, base[nation], ov) : Object.assign({}, base[nation]);
-    });
-    return merged;
-}
-async function loadMapData() {
-    _mapData = Object.assign({}, MAP_DATA_FALLBACK);
-    let cached = null;
-    try { cached = JSON.parse(localStorage.getItem(MAP_DATA_KEY)||'null'); } catch(e){}
-    const TTL = 7*24*60*60*1000;
-    if (cached && cached.fetchedAt && (Date.now()-new Date(cached.fetchedAt).getTime())<TTL && cached.data) { _mapData = cached.data; return; }
-    try {
-        const targets = ['https://wiki.gg/wiki/Genshin_Impact/Primogems','https://genshin-impact.fandom.com/wiki/Primogem'];
-        let parsed = null;
-        for (const t of targets) {
-            try {
-                const res = await fetch(CORS_PROXY + encodeURIComponent(t));
-                if (!res.ok) continue;
-                parsed = parseWikiTable(await res.text());
-                if (parsed) break;
-            } catch(e){}
-        }
-        if (parsed) Object.keys(parsed).forEach(n => { if (_mapData[n]) _mapData[n] = Object.assign({}, _mapData[n], parsed[n]); });
-        else console.warn('Map wiki parse failed; using fallback data.');
-        try { localStorage.setItem(MAP_DATA_KEY, JSON.stringify({data:_mapData, fetchedAt:new Date().toISOString()})); } catch(e){}
-    } catch(e) { console.warn('Map data fetch failed; using fallback.', e); }
-}
-function parseWikiTable(html) {
-    try {
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const nationMap = { mondstadt:'Mondstadt', liyue:'Liyue', inazuma:'Inazuma', sumeru:'Sumeru', fontaine:'Fontaine', natlan:'Natlan' };
-        const result = {};
-        doc.querySelectorAll('table').forEach(table => {
-            table.querySelectorAll('tr').forEach(row => {
-                const cells = row.querySelectorAll('th, td');
-                if (cells.length < 2) return;
-                const nation = nationMap[cells[0].textContent.trim().toLowerCase()];
-                if (!nation) return;
-                if (!result[nation]) result[nation] = { chests:0, quests:0, oculi:0, other:0 };
-                let sum = 0;
-                for (let i=1;i<cells.length;i++) { const m = cells[i].textContent.replace(/[^0-9]/g,''); if (m) sum += parseInt(m,10); }
-                result[nation].other += sum;
-            });
-        });
-        return Object.keys(result).length>0 ? result : null;
-    } catch(e) { return null; }
-}
 function renderMapView() {
     // Fullscreen embedded interactive map (genshin-impact-map.appsample.com).
     // The iframe fills the entire viewport when the Map view is active.
     const el = $('view-map'); if (!el) return;
     el.innerHTML = `<iframe id="interactive-map-iframe" src="https://genshin-impact-map.appsample.com/?map=teyvat"></iframe>`;
-}
-function renderMapTracker() {
-    // Render the primo completion tracker into the primos view's tracker panel (if present).
-    // The world map view no longer hosts the tracker; it's a standalone interactive map.
-    const wrap = $('primos-tracker-panel'); if (!wrap) return;
-    const data = getMapData();
-    const nations = Object.keys(data);
-    let html = `<div class="map-summary-bar" id="map-summary-bar"></div><div class="nation-grid">`;
-    nations.forEach(nation => {
-        const cats = data[nation], comp = state.mapCompletion[nation] || {};
-        let nTotal=0, nRem=0;
-        MAP_CATEGORIES.forEach(cat => { nTotal += cats[cat]||0; const pct = comp[cat]!=null?comp[cat]:0; nRem += Math.round((cats[cat]||0)*(1-pct/100)); });
-        const nPct = nTotal>0 ? Math.round(((nTotal-nRem)/nTotal)*100) : 0;
-        html += `<div class="nation-card" data-nation="${nation}">
-            <div class="nation-card-head"><span class="nation-name">${nation}</span><span class="nation-total">Available: ${nTotal.toLocaleString()} primos</span></div>`;
-        MAP_CATEGORIES.forEach(cat => {
-            const avail = cats[cat]||0;
-            const pct = comp[cat]!=null?comp[cat]:0;
-            const rem = Math.round(avail*(1-pct/100));
-            html += `<div class="cat-row" data-nation="${nation}" data-cat="${cat}">
-                <span class="cat-label">${MAP_CAT_LABELS[cat]}</span>
-                <input type="range" min="0" max="100" value="${pct}" class="cat-slider" data-nation="${nation}" data-cat="${cat}">
-                <span class="cat-pct">${pct}%</span>
-                <span class="cat-remaining">${rem.toLocaleString()}</span>
-            </div>`;
-        });
-        html += `<div class="nation-completion" data-nation="${nation}">
-            <span class="cat-label">Completion</span>
-            <div class="cat-bar"><div class="cat-bar-fill" style="width:${nPct}%"></div></div>
-            <span class="cat-pct">${nPct}%</span>
-            <span class="cat-remaining">${nRem.toLocaleString()}</span>
-        </div>
-        <div class="nation-edit-row"><button class="btn-icon" data-edit-nation="${nation}">Edit totals</button></div>
-        </div>`;
-    });
-    html += '</div>';
-    wrap.innerHTML = html;
-    updateMapSummary();
-    wrap.querySelectorAll('.cat-slider').forEach(s => {
-        s.addEventListener('input', e => {
-            const nation = e.target.dataset.nation, cat = e.target.dataset.cat;
-            const v = parseInt(e.target.value, 10);
-            if (!state.mapCompletion[nation]) state.mapCompletion[nation] = {};
-            state.mapCompletion[nation][cat] = v;
-            saveState();
-            updateMapRowDisplay(nation, cat);
-            updateMapNationCompletion(nation);
-            updateMapSummary();
-            if ($('view-primos').classList.contains('active')) renderPrimos();
-        });
-    });
-    wrap.querySelectorAll('button[data-edit-nation]').forEach(b => {
-        b.addEventListener('click', e => openEditNationTotals(e.target.dataset.editNation || e.target.closest('button').dataset.editNation));
-    });
-}
-function updateMapRowDisplay(nation, cat) {
-    const data = getMapData();
-    const avail = data[nation][cat] || 0;
-    const pct = state.mapCompletion[nation][cat] != null ? state.mapCompletion[nation][cat] : 0;
-    const rem = Math.round(avail * (1 - pct/100));
-    const row = document.querySelector(`.cat-row[data-nation="${nation}"][data-cat="${cat}"]`);
-    if (row) {
-        row.querySelector('.cat-pct').textContent = pct + '%';
-        row.querySelector('.cat-remaining').textContent = rem.toLocaleString();
-    }
-}
-function updateMapNationCompletion(nation) {
-    const data = getMapData(), cats = data[nation], comp = state.mapCompletion[nation] || {};
-    let nTotal=0, nRem=0;
-    MAP_CATEGORIES.forEach(cat => { nTotal += cats[cat]||0; const pct = comp[cat]!=null?comp[cat]:0; nRem += Math.round((cats[cat]||0)*(1-pct/100)); });
-    const nPct = nTotal>0 ? Math.round(((nTotal-nRem)/nTotal)*100) : 0;
-    const nc = document.querySelector(`.nation-completion[data-nation="${nation}"]`);
-    if (nc) {
-        nc.querySelector('.cat-bar-fill').style.width = nPct + '%';
-        nc.querySelector('.cat-pct').textContent = nPct + '%';
-        nc.querySelector('.cat-remaining').textContent = nRem.toLocaleString();
-    }
-    const head = document.querySelector(`.nation-card[data-nation="${nation}"] .nation-total`);
-    if (head) head.textContent = `Available: ${nTotal.toLocaleString()} primos`;
-}
-function updateMapSummary() {
-    const el = $('map-summary-bar'); if (!el) return;
-    let total = 0;
-    const data = getMapData();
-    Object.keys(data).forEach(n => {
-        const cats = data[n], comp = state.mapCompletion[n] || {};
-        Object.keys(cats).forEach(cat => { total += Math.round((cats[cat]||0)*(1-((comp[cat]!=null?comp[cat]:0)/100))); });
-    });
-    const pulls = Math.floor(total/PRIMO_PER_PULL);
-    el.innerHTML = `Total primos remaining across all regions: <span class="summary-big">${total.toLocaleString()}</span> <span class="summary-sub">(~${pulls} pulls)</span>`;
-}
-async function openEditNationTotals(nation) {
-    const data = getMapData()[nation] || {};
-    const cur = state.mapOverrides && state.mapOverrides[nation] ? state.mapOverrides[nation] : data;
-    const html = `<p style="margin-top:0;">Override primo totals for <b>${nation}</b>.</p>` +
-        MAP_CATEGORIES.map(cat => `<div class="settings-row" style="justify-content:flex-start;"><label style="width:80px;">${MAP_CAT_LABELS[cat]}</label><input type="number" class="modal-input" id="ov-${cat}" value="${cur[cat]||0}" min="0" style="margin-bottom:0;"></div>`).join('');
-    const ok = await showModal({ title:`Edit ${nation}`, customHtml:html, confirmText:'Save' });
-    if (ok) {
-        const ov = {};
-        MAP_CATEGORIES.forEach(cat => { const inp=$('ov-'+cat); const v=parseInt(inp.value,10); ov[cat] = isNaN(v)||v<0?0:v; });
-        if (!state.mapOverrides) state.mapOverrides = {};
-        state.mapOverrides[nation] = ov; saveState();
-        renderMapTracker();
-        if ($('view-primos').classList.contains('active')) renderPrimos();
-    }
 }
 
 // ---------- Calendar ----------
@@ -1972,13 +1539,18 @@ async function importData(e) {
             });
             if (!ok) return;
             let allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
-            // Dedup with normalized names (strip apostrophes) to prevent duplicates.
-            const normName = n => (n || '').toLowerCase().replace(/['\u2019]/g, '');
+            // Universal name resolution + dedup.
+            _nameLookup = null;
+            wishParsed.wishes.forEach(w => {
+                w.name = resolveItemName(w.name);
+                w.gacha_type = String(w.gacha_type);
+                if (w.gacha_type === '400') w.gacha_type = '301';
+            });
             const existingIds = new Set(allWishes.map(w => w.id));
-            const existingKeys = new Set(allWishes.map(w => `${w.gacha_type}|${normName(w.name)}|${w.time}`));
+            const existingKeys = new Set(allWishes.map(w => `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`));
             let added = 0;
             wishParsed.wishes.forEach(w => {
-                const key = `${w.gacha_type}|${normName(w.name)}|${w.time}`;
+                const key = `${w.gacha_type}|${normalizeNameKey(w.name)}|${w.time}`;
                 if (!existingIds.has(w.id) && !existingKeys.has(key)) { allWishes.push(w); added++; existingKeys.add(key); }
             });
             allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -2065,7 +1637,6 @@ async function init() {
     await loadItemDB();
     deriveStandardPool();
     recomputePityState();
-    loadMapData();
     checkForAutomaticResets();
     startResinTicker();
     bindGlobalEvents();
