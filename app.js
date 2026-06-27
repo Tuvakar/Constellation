@@ -40,15 +40,13 @@ const THEMES = {
 
 const BANNERS = [
     { id:'301', name:'Character Event',  type:'character',  hardPity5:90, softPity5:74, hardPity4:10, has5050:true,  hasFatePoints:false },
-    { id:'400', name:'Character Event 2',type:'character',  hardPity5:90, softPity5:74, hardPity4:10, has5050:true,  hasFatePoints:false },
-    { id:'302', name:'Weapon Event',     type:'weapon',     hardPity5:80, softPity5:63, hardPity4:10, has5050:true,  hasFatePoints:false },
+    { id:'302', name:'Weapon Event',     type:'weapon',     hardPity5:80, softPity5:63, hardPity4:10, has5050:false, hasFatePoints:false },
     { id:'200', name:'Standard',         type:'standard',   hardPity5:90, softPity5:74, hardPity4:10, has5050:false, hasFatePoints:false },
     { id:'500', name:'Chronicled Wish',  type:'chronicled', hardPity5:90, softPity5:74, hardPity4:10, has5050:false, hasFatePoints:false },
 ];
 
 const IMPORT_BANNER_TYPES = [
     { id:'301', name:'Character Event' },
-    { id:'400', name:'Character Event 2' },
     { id:'302', name:'Weapon Event' },
     { id:'200', name:'Standard' },
     { id:'500', name:'Chronicled Wish' },
@@ -351,7 +349,6 @@ let _viewAnimating = false, _resinInterval = null;
 function defaultPityState() {
     return {
         '301': { current5:0, current4:0, guaranteed:false },
-        '400': { current5:0, current4:0, guaranteed:false },
         '302': { current5:0, current4:0, guaranteed:false },
         '200': { current5:0, current4:0 },
         '500': { current5:0, current4:0 },
@@ -722,13 +719,12 @@ function analyzeBannerData(wishes, cfg) {
         const rarity = getItemRarity(w.name) || parseInt(w.rank_type, 10);
         const pd = { name:w.name, pity:p5, win:null, outcome:null, fatePoints:null, inSoftPity: p5>=cfg.softPity5, time:w.time, item_type:w.item_type, rank_type:w.rank_type };
         if (rarity===5) {
-            if (cfg.type==='character' || cfg.type==='weapon') {
-                // Both character and weapon banners now use 50/50 with guarantee:
-                // lose the 50/50 -> next 5★ is guaranteed featured.
+            if (cfg.type==='character') {
+                // Character banner: 50/50 with guarantee (lose -> next 5★ guaranteed featured).
                 const isLoss = isStandardFiveStar(w.name);
                 if (guaranteed) {
                     pd.win = true;
-                    pd.outcome = 'guarantee';  // got the featured because previous was a loss
+                    pd.outcome = 'guarantee';
                     guaranteed = false;
                 } else if (isLoss) {
                     pd.win = false;
@@ -738,6 +734,11 @@ function analyzeBannerData(wishes, cfg) {
                     pd.win = true;
                     pd.outcome = 'win';
                 }
+            } else if (cfg.type==='weapon') {
+                // Weapon banner: can't determine win/loss without knowing the featured
+                // weapon list, so we don't tag outcomes. Just track pity.
+                pd.win = null;
+                pd.outcome = null;
             } else { pd.win=true; pd.outcome='win'; }
             fives.push(pd); p5=0;
         }
@@ -766,10 +767,10 @@ function recomputePityState() {
         const bw = wishes.filter(w => w.gacha_type===b.id);
         const s = analyzeBannerData(bw, b);
         if (s) {
-            if (b.type==='character' || b.type==='weapon') next[b.id]={current5:s.pity.current5,current4:s.pity.current4,guaranteed:s.pity.guaranteed};
+            if (b.type==='character') next[b.id]={current5:s.pity.current5,current4:s.pity.current4,guaranteed:s.pity.guaranteed};
             else next[b.id]={current5:s.pity.current5,current4:s.pity.current4};
         } else {
-            if (b.type==='character' || b.type==='weapon') next[b.id]={current5:0,current4:0,guaranteed:false};
+            if (b.type==='character') next[b.id]={current5:0,current4:0,guaranteed:false};
             else next[b.id]={current5:0,current4:0};
         }
     });
@@ -1134,7 +1135,7 @@ function renderGachaStats() {
         let details = '<div class="gacha-details-grid">';
         details += `<div class="gacha-grid-header"></div><div class="gacha-grid-header">Total</div><div class="gacha-grid-header">Percent</div><div class="gacha-grid-header">Pity AVG</div>`;
         details += `<div class="gacha-grid-label" style="color:var(--gold)">5 \u2605</div><div class="gacha-grid-value gold">${s.five.total}</div><div class="gacha-grid-value">${f(s.five.percent,2)}%</div><div class="gacha-grid-value gold">${f(s.five.avgPity,1)}</div>`;
-        if ((cfg.type==='character' || cfg.type==='weapon') && s.five.total>0) {
+        if (cfg.type==='character' && s.five.total>0) {
             details += `<div class="gacha-grid-label indented">\u21B3 Win 50/50</div><div class="gacha-grid-value">${s.five.wins}</div><div class="gacha-grid-value">${f(s.five.total>0?(s.five.wins/s.five.total)*100:0,1)}%</div><div class="gacha-grid-value">-</div>`;
             details += `<div class="gacha-grid-label indented">\u21B3 Lost 50/50</div><div class="gacha-grid-value">${s.five.losses}</div><div class="gacha-grid-value">${f(s.five.total>0?(s.five.losses/s.five.total)*100:0,1)}%</div><div class="gacha-grid-value">-</div>`;
             details += `<div class="gacha-grid-label indented">\u21B3 Guarantee</div><div class="gacha-grid-value">${s.five.guarantees}</div><div class="gacha-grid-value">${f(s.five.total>0?(s.five.guarantees/s.five.total)*100:0,1)}%</div><div class="gacha-grid-value">-</div>`;
@@ -1168,7 +1169,7 @@ function renderGachaStats() {
             details += `<div class="gacha-pulls-header"><label class="pull-sort-label">Sort 5\u2605 pulls: <select class="pull-sort" data-banner="${cfg.id}">${opts}</select></label><span class="pull-count-text">${s.five.list.length} total</span></div><div class="gacha-pulls-container" data-pulls-banner="${cfg.id}">${pullsHtml}</div>`;
         }
         let guarLine = `Guaranteed at ${cfg.hardPity5}`;
-        if (cfg.type==='character' || cfg.type==='weapon') guarLine = s.pity.guaranteed ? 'Next 5\u2605 guaranteed featured' : '50/50 active';
+        if (cfg.type==='character') guarLine = s.pity.guaranteed ? 'Next 5\u2605 guaranteed featured' : '50/50 active';
         else if (cfg.type==='chronicled') guarLine = 'Every 5\u2605 guaranteed featured';
         // Fate Points dots removed — weapon banner now uses 50/50 + guarantee (same as character banner).
         const fateDots = '';
@@ -1376,11 +1377,10 @@ function parsePaimonMoe(data) {
         const banner = data[bk];
         if (!banner || !Array.isArray(banner.pulls)) return;
         banner.pulls.forEach(p => {
-            // Use the pull's own 'code' field as the gacha_type — paimon.moe stores
-            // pulls from both Character Event (301) and Character Event 2 (400) under
-            // the same wish-counter-character-event key. Using the code field correctly
-            // separates them so they don't get duplicated when mixed with URL imports.
-            const gachaType = p.code || bannerKeys[bk];
+            // Use the pull's own 'code' field as the gacha_type. Code 400 (Character
+            // Event 2) is merged into 301 (Character Event) since we track them together.
+            const rawCode = p.code || bannerKeys[bk];
+            const gachaType = (rawCode === '400') ? '301' : rawCode;
             const name = paimonIdToName(p.id);
             const rarity = getItemRarity(name);
             // If rarity is unknown (not in DB), use '0' so checkUnknownItems prompts the user.
