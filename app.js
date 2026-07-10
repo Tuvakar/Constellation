@@ -2580,7 +2580,7 @@ function renderNteSettings(el) {
         <div class="settings-section"><h3>Theme</h3><div class="theme-grid">${chips}</div>
             <div class="custom-accent-row"><label for="custom-accent-input">Custom accent:</label><input type="color" id="custom-accent-input" value="${customAccent || getActiveThemes()[theme].accent}">${customAccent?'<button class="btn-icon" id="reset-accent-btn" title="Reset to theme accent">Reset</button>':''}</div></div>
         <div class="settings-section"><h3>Constellation Layout</h3>
-            <p style="text-align:center;color:var(--secondary-text);font-size:0.85em;margin:0 0 12px;">Choose how the 6 nav stars are arranged on the main menu.).</p>
+            <p style="text-align:center;color:var(--secondary-text);font-size:0.85em;margin:0 0 12px;">Choose how the 6 nav stars are arranged on the main menu.</p>
             <div class="layout-grid">${layouts.map(l => `<button class="layout-chip ${l.id===_activeLayout?'selected':''}" data-layout="${l.id}"><span class="layout-chip-name">${l.name}</span></button>`).join('')}</div>
         </div>
         <div class="settings-section"><h3>General Resets</h3><div class="controls-group" style="margin-top:0;"><button id="manual-reset-btn" class="btn btn-secondary">Perform Daily Task Reset</button></div></div>
