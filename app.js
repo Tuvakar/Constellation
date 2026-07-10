@@ -11,10 +11,19 @@ const STORAGE_KEY     = 'genshinTrackerData_v3';
 const OLD_STORAGE_KEY = 'genshinTrackerData_v2_stable';
 const ITEM_DB_KEY     = 'genshinItemDB_v4';
 const THEME_KEY       = 'genshinTheme_v1';
+const NTE_THEME_KEY   = 'nteTheme_v1';   // separate theme storage for NTE so the two games don't overwrite each other
 const LAYOUT_KEY      = 'genshinLayout_v1';   // selected constellation layout preset id
+const NTE_LAYOUT_KEY  = 'nteLayout_v1';      // separate layout storage for NTE
 const ACCOUNTS_KEY    = 'genshinAccounts_v1';   // { activeId, list: [{id, name}] }
 // Each account's data lives under DATA_PREFIX + accountId.
 const DATA_PREFIX     = 'genshinTrackerData_v3_acc_';
+// Game switcher — 'genshin' or 'nte'. Theme + layout are SHARED across games; all other
+// state (accounts, gacha log, primos, etc.) is game-prefixed so the two games don't collide.
+const ACTIVE_GAME_KEY = 'constellationActiveGame_v1';
+// NTE (Neverness to Everness) per-account/per-game keys.
+const NTE_ACCOUNTS_KEY = 'nteAccounts_v1';
+const NTE_DATA_PREFIX  = 'nteTrackerData_v1_acc_';
+const NTE_STATE_VERSION = 1;
 // CORS proxies — corsproxy.io first (the original working order; it's fast when it
 // works), with fallbacks. The bulletproof Promise.race timeout in fetchWithRetry
 // means a hung proxy only costs 10s before falling through to the next one, so the
@@ -40,12 +49,38 @@ const THEMES = {
     Cryo:     { accent:'#85c1e9', bg:'#121617', card:'#1a2024', border:'#262e33', secondary:'#80909a', primary:'#ecf2f4' },
 };
 
+// NTE element-based themes — one per the 6 primary NTE elements, using the element's
+// signature color as the accent. NTE themes use gradient backgrounds (a subtle radial
+// glow tinted to the element's color) to visually distinguish them from Genshin's flat themes.
+const NTE_THEMES = {
+    Cosmos:       { accent:'#e8e8f0', bg:'#131318', card:'#1c1c24', border:'#2a2a33', secondary:'#8a8a95', primary:'#f2f2f7' },
+    Lakshana:     { accent:'#ffd54f', bg:'#1a1610', card:'#24201a', border:'#332e22', secondary:'#969078', primary:'#f4f2e8' },
+    Anima:        { accent:'#26d0a8', bg:'#101814', card:'#182420', border:'#243328', secondary:'#7e958a', primary:'#ecf4ee' },
+    Incantation:  { accent:'#ff5b5b', bg:'#1a1010', card:'#241616', border:'#332222', secondary:'#968080', primary:'#f4ecec' },
+    Psyche:       { accent:'#5b9eff', bg:'#101419', card:'#161e24', border:'#222c33', secondary:'#7e8a95', primary:'#eaeff4' },
+    Chaos:        { accent:'#8b5cf6', bg:'#141019', card:'#1c1824', border:'#282333', secondary:'#827e95', primary:'#eeeaf4' },
+};
+
 const BANNERS = [
     { id:'301', name:'Character Event',  type:'character',  hardPity5:90, softPity5:74, hardPity4:10, has5050:true,  hasFatePoints:false },
     { id:'302', name:'Weapon Event',     type:'weapon',     hardPity5:80, softPity5:63, hardPity4:10, has5050:false, hasFatePoints:false },
     { id:'200', name:'Standard',         type:'standard',   hardPity5:90, softPity5:74, hardPity4:10, has5050:false, hasFatePoints:false },
     { id:'500', name:'Chronicled Wish',  type:'chronicled', hardPity5:90, softPity5:74, hardPity4:10, has5050:false, hasFatePoints:false },
 ];
+
+// ---------- NTE (Neverness to Everness) game configuration ----------
+// NTE has 3 banners. The "system" field distinguishes the gacha type (Monopoly = the
+// board-game-style main gacha, Gashapon = the Arc Miracle Box). sharedPity indicates
+// whether the banner shares pity with another (currently informational only).
+const NTE_BANNERS = [
+    { id:'Lottery_Permanent',         name:'Standard Board',           system:'Monopoly', sharedPity:false, hardPity:90, softPity:70, hardPity4:10 },
+    { id:'Lottery_LimitedCharacter',  name:'Limited Character Board',  system:'Monopoly', sharedPity:true,  hardPity:90, softPity:70, hardPity4:10 },
+    { id:'Arc_MiracleBox',            name:'Arc Miracle Box',          system:'Gashapon', sharedPity:true,  hardPity:90, softPity:70, hardPity4:10 },
+];
+// NTE ranks: S = 5★ equiv (resets pity), A = 4★ equiv, B = 3★ equiv.
+const NTE_RANK_TO_RARITY = { 'S': 5, 'A': 4, 'B': 3 };
+// Reverse lookup for display: rarity -> NTE rank label.
+const NTE_RARITY_TO_RANK = { 5: 'S', 4: 'A', 3: 'B' };
 
 // ---------- Constellation layout presets ----------
 // Each preset defines positions (x,y as % of the menu box) for the 6 nav stars and the
@@ -63,50 +98,169 @@ const STAR_LABELS = {
     'view-primos':'Primogems', 'view-tasks':'Tasks', 'view-gacha':'Gacha Log',
     'view-calendar':'Calendar', 'view-map':'Map', 'view-settings':'Settings',
 };
+// Genshin constellation layouts — each preset symbolizes a Genshin element via the
+// arrangement of its 6 nav stars (Primogems, Tasks, Gacha Log, Calendar, Map, Settings).
 const CONSTELLATION_LAYOUTS = [
-    // Preset 1 — "Aurora" (original Y/branch with a central hub)
-    { id:'aurora', name:'Aurora', stars:{
-        'view-primos':   {x:50,y:18}, 'view-tasks':{x:22,y:42}, 'view-gacha':{x:45,y:50},
-        'view-calendar': {x:66,y:44}, 'view-map':{x:72,y:80},   'view-settings':{x:86,y:20},
-      }, lines:[['view-primos','view-gacha'],['view-tasks','view-gacha'],['view-gacha','view-calendar'],['view-calendar','view-map'],['view-calendar','view-settings']],
-      order:['view-primos','view-tasks','view-gacha','view-calendar','view-map','view-settings'] },
-    // Preset 2 — "Comet" (traced from user sketch image 1, pattern 2; Map moved to user's red marker at 50,68)
-    { id:'comet', name:'Comet', stars:{
-        'view-tasks':    {x:10,y:54}, 'view-primos':{x:30,y:23}, 'view-settings':{x:39,y:90},
-        'view-map':      {x:50,y:68}, 'view-gacha':{x:86,y:10},  'view-calendar':{x:90,y:49},
-      }, lines:[['view-gacha','view-calendar'],['view-primos','view-tasks'],['view-primos','view-map'],['view-calendar','view-settings'],['view-tasks','view-settings']],
-      order:['view-tasks','view-primos','view-settings','view-map','view-gacha','view-calendar'] },
-    // Preset 3 — "Crown" (traced from user sketch image 1, pattern 3; Settings & Calendar swapped per user request)
-    { id:'crown', name:'Crown', stars:{
-        'view-primos':   {x:10,y:38}, 'view-calendar':{x:17,y:65}, 'view-tasks':{x:43,y:61},
-        'view-gacha':    {x:51,y:10}, 'view-map':{x:71,y:90},      'view-settings':{x:90,y:31},
-      }, lines:[['view-gacha','view-tasks'],['view-primos','view-tasks'],['view-primos','view-calendar'],['view-tasks','view-calendar'],['view-tasks','view-map']],
-      order:['view-primos','view-calendar','view-tasks','view-gacha','view-map','view-settings'] },
-    // Preset 4 — "Lyra" (traced from user sketch image 2, pattern 1; renamed from River per user request)
-    { id:'lyra', name:'Lyra', stars:{
-        'view-tasks':    {x:10,y:58}, 'view-settings':{x:33,y:89}, 'view-gacha':{x:49,y:10},
-        'view-map':      {x:70,y:90}, 'view-primos':{x:83,y:24},   'view-calendar':{x:90,y:61},
-      }, lines:[['view-gacha','view-primos'],['view-primos','view-calendar'],['view-tasks','view-settings'],['view-calendar','view-map'],['view-settings','view-map']],
-      order:['view-tasks','view-settings','view-gacha','view-map','view-primos','view-calendar'] },
+    // "Anemo" — wide upside-down triangle on top, pole down to smaller upside-down triangle on bottom.
+    { id:'anemo', name:'Anemo', stars:{
+        'view-gacha':    {x:50,y:30}, 'view-tasks':{x:80,y:20}, 'view-primos':{x:20,y:20},
+        'view-calendar': {x:40,y:60}, 'view-map':{x:60,y:60},  'view-settings':{x:50,y:75},
+      }, lines:[['view-primos','view-gacha'],['view-tasks','view-gacha'],['view-calendar','view-map'],['view-calendar','view-settings'],['view-map','view-settings']],
+      vlines:[{from:'view-gacha', toMid:['view-calendar','view-map']}],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+    // "Geo" — a diamond with two vertical dots in the middle, not connected to each other.
+    { id:'geo', name:'Geo', stars:{
+        'view-gacha':    {x:50,y:20}, 'view-tasks':{x:50,y:35}, 'view-primos':{x:20,y:50},
+        'view-calendar': {x:50,y:60}, 'view-map':{x:80,y:50},  'view-settings':{x:50,y:80},
+      }, lines:[['view-gacha','view-tasks'],['view-gacha','view-primos'],['view-gacha','view-map'],['view-tasks','view-primos'],['view-tasks','view-map'],['view-calendar','view-primos'],['view-calendar','view-map'],['view-primos','view-settings'],['view-map','view-settings'],['view-calendar','view-settings']],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+    // "Electro" — tilted outer triangle with a smaller inner triangle. Inner dots connect to each other and to outer dots.
+    { id:"electro", name:"Electro", stars:{
+        "view-gacha":    {x:16,y:41}, "view-tasks":{x:68,y:8}, "view-primos":{x:74,y:69},
+        "view-calendar": {x:38,y:32}, "view-map":{x:51,y:55},  "view-settings":{x:65,y:32},
+      }, lines:[["view-gacha","view-calendar"],["view-map","view-primos"],["view-settings","view-tasks"]],
+      vlines:[{from:"view-calendar",toPoint:{x:51,y:40},also:["view-map","view-settings"]},{from:"view-map",toPoint:{x:51,y:40},also:["view-calendar","view-settings"]},{from:"view-settings",toPoint:{x:51,y:40},also:["view-calendar","view-map"]}],
+      order:["view-gacha","view-tasks","view-primos","view-calendar","view-map","view-settings"] },
+    // "Dendro" — narrow right-side-up triangle on top, wide upside-down triangle on bottom, stem (vpoint) at top.
+    { id:"dendro", name:"Dendro", stars:{
+        "view-gacha":    {x:30,y:42}, "view-tasks":{x:70,y:42}, "view-calendar":{x:50,y:26},
+        "view-primos":   {x:15,y:65}, "view-map":{x:85,y:65},  "view-settings":{x:50,y:85},
+      }, lines:[["view-primos","view-settings"],["view-map","view-settings"],["view-gacha","view-primos"],["view-tasks","view-map"]],
+      vlines:[{from:"view-calendar",toPoint:{x:50,y:48},also:["view-gacha","view-tasks"]},{from:"view-gacha",toPoint:{x:50,y:48},also:["view-tasks","view-calendar"]},{from:"view-tasks",toPoint:{x:50,y:48},also:["view-gacha","view-calendar"]}],
+      order:["view-gacha","view-tasks","view-primos","view-calendar","view-map","view-settings"] },
+    // "Hydro" — regular hexagon, neighbors only.
+    { id:"hydro", name:"Hydro", stars:{
+        "view-gacha":    {x:79,y:71}, "view-tasks":{x:83,y:31}, "view-primos":{x:48,y:13},
+        "view-calendar": {x:13,y:34}, "view-map":{x:56,y:50},  "view-settings":{x:48,y:86},
+      }, lines:[["view-gacha","view-tasks"],["view-tasks","view-primos"],["view-primos","view-calendar"],["view-calendar","view-map"],["view-map","view-settings"],["view-settings","view-gacha"]],
+      order:["view-gacha","view-tasks","view-primos","view-calendar","view-map","view-settings"] },
+    // "Pyro" — diamond with wider bottom, narrower elongated top, dots on the top lines.
+    { id:"pyro", name:"Pyro", stars:{
+        "view-gacha":    {x:50,y:10}, "view-calendar":{x:30,y:30}, "view-map":{x:70,y:30},
+        "view-primos":   {x:20,y:60}, "view-tasks":{x:80,y:60},  "view-settings":{x:50,y:85},
+      }, lines:[["view-gacha","view-calendar"],["view-gacha","view-map"],["view-calendar","view-map"],["view-calendar","view-primos"],["view-map","view-tasks"],["view-primos","view-settings"],["view-tasks","view-settings"],["view-calendar","view-settings"],["view-map","view-settings"]],
+      order:["view-gacha","view-tasks","view-primos","view-calendar","view-map","view-settings"] },
+    // "Cryo" — hexagon with vlines from each vertex to center vpoint.
+    { id:"cryo", name:"Cryo", stars:{
+        "view-gacha":    {x:50,y:15}, "view-tasks":{x:82,y:33}, "view-calendar":{x:82,y:67},
+        "view-map":      {x:50,y:85}, "view-primos":{x:18,y:67}, "view-settings":{x:18,y:33},
+      }, lines:[["view-gacha","view-tasks"],["view-tasks","view-calendar"],["view-calendar","view-map"],["view-map","view-primos"],["view-primos","view-settings"],["view-settings","view-gacha"]],
+      vlines:[{from:"view-gacha",toPoint:{x:50,y:50},also:["view-tasks","view-calendar","view-map","view-primos","view-settings"]},{from:"view-tasks",toPoint:{x:50,y:50},also:["view-gacha","view-calendar","view-map","view-primos","view-settings"]},{from:"view-calendar",toPoint:{x:50,y:50},also:["view-gacha","view-tasks","view-map","view-primos","view-settings"]},{from:"view-map",toPoint:{x:50,y:50},also:["view-gacha","view-tasks","view-calendar","view-primos","view-settings"]},{from:"view-primos",toPoint:{x:50,y:50},also:["view-gacha","view-tasks","view-calendar","view-map","view-settings"]},{from:"view-settings",toPoint:{x:50,y:50},also:["view-gacha","view-tasks","view-calendar","view-map","view-primos"]}],
+      order:["view-gacha","view-tasks","view-calendar","view-map","view-primos","view-settings"] },
 ];
-let _activeLayout = 'aurora';
-function loadLayout() {
-    try { _activeLayout = JSON.parse(localStorage.getItem(LAYOUT_KEY)||'{}').id || 'aurora'; } catch(e){ _activeLayout='aurora'; }
-    if (!CONSTELLATION_LAYOUTS.find(l => l.id===_activeLayout)) _activeLayout = 'aurora';
+
+// NTE constellation layouts — traced from the user's hand-drawn sketches. Each has exactly
+// 6 dots (one per nav star) and symbolizes an NTE element.
+const NTE_LAYOUTS = [
+    // "Cosmos" — star burst: central dot (Settings) with 5 dots radiating outward. All connect to center only.
+    { id:'cosmos', name:'Cosmos', stars:{
+        'view-gacha':    {x:65,y:80}, 'view-tasks':{x:50,y:15}, 'view-primos':{x:20,y:45},
+        'view-calendar': {x:80,y:45}, 'view-map':{x:35,y:80},  'view-settings':{x:50,y:50},
+      }, lines:[['view-settings','view-tasks'],['view-settings','view-primos'],['view-settings','view-calendar'],['view-settings','view-map'],['view-settings','view-gacha']],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+    // "Chaos" — diamond with center dot + vertical axis + one offset dot (no connections to offset).
+    { id:'chaos', name:'Chaos', stars:{
+        'view-gacha':    {x:50,y:45}, 'view-tasks':{x:20,y:45}, 'view-primos':{x:50,y:15},
+        'view-calendar': {x:80,y:45}, 'view-map':{x:50,y:75},  'view-settings':{x:72,y:23},
+      }, lines:[['view-tasks','view-primos'],['view-calendar','view-map'],['view-map','view-tasks'],['view-gacha','view-primos'],['view-gacha','view-map'],['view-gacha','view-tasks'],['view-gacha','view-calendar']],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+    // "Anima" — cross: vertical line (top→mid→center→bottom) with left/right arms at center.
+    { id:'anima', name:'Anima', stars:{
+        'view-gacha':    {x:50,y:50}, 'view-tasks':{x:50,y:10}, 'view-primos':{x:50,y:30},
+        'view-calendar': {x:20,y:50}, 'view-map':{x:80,y:50},  'view-settings':{x:50,y:75},
+      }, lines:[['view-tasks','view-primos'],['view-primos','view-gacha'],['view-gacha','view-calendar'],['view-gacha','view-map'],['view-gacha','view-settings']],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+    // "Incantation" — diamond with 2 inner dots. Only inner dots connect to outer dots; outer dots don't connect to each other.
+    { id:'incantation', name:'Incantation', stars:{
+        'view-gacha':    {x:50,y:15}, 'view-tasks':{x:80,y:50}, 'view-primos':{x:50,y:85},
+        'view-calendar': {x:20,y:50}, 'view-map':{x:45,y:43},  'view-settings':{x:55,y:57},
+      }, lines:[['view-map','view-settings'],['view-map','view-gacha'],['view-map','view-calendar'],['view-settings','view-tasks'],['view-settings','view-primos']],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+    // "Psyche" — vertically elongated diamond + 1 dot lower-right of center + 1 dot between calendar and gacha.
+    { id:'psyche', name:'Psyche', stars:{
+        'view-gacha':    {x:50,y:20}, 'view-tasks':{x:75,y:53}, 'view-primos':{x:50,y:90},
+        'view-calendar': {x:25,y:53}, 'view-map':{x:56,y:60},  'view-settings':{x:38,y:37},
+      }, lines:[['view-gacha','view-tasks'],['view-tasks','view-primos'],['view-primos','view-calendar'],['view-map','view-primos'],['view-map','view-calendar'],['view-settings','view-tasks']],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+    // "Lakshana" — hourglass: two rows of 3 dots with horizontal lines per row + X diagonals crossing between rows. No center dot.
+    { id:'lakshana', name:'Lakshana', stars:{
+        'view-gacha':    {x:20,y:25}, 'view-tasks':{x:50,y:10}, 'view-primos':{x:80,y:25},
+        'view-calendar': {x:20,y:75}, 'view-map':{x:50,y:90},  'view-settings':{x:80,y:75},
+      }, lines:[['view-gacha','view-tasks'],['view-tasks','view-primos'],['view-calendar','view-map'],['view-map','view-settings'],['view-gacha','view-settings'],['view-primos','view-calendar']],
+      order:['view-gacha','view-tasks','view-primos','view-calendar','view-map','view-settings'] },
+];
+
+// ---------- Active game ----------
+// 'genshin' (default) or 'nte'. Determines which set of accounts/state/banners/views
+// the app uses. Theme + layout are SHARED across games.
+let _activeGame = 'genshin';
+function loadActiveGame() {
+    try {
+        const g = localStorage.getItem(ACTIVE_GAME_KEY);
+        if (g === 'genshin' || g === 'nte') _activeGame = g;
+        else _activeGame = 'genshin';
+    } catch(e) { _activeGame = 'genshin'; }
 }
-function saveLayout(id) { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify({id})); } catch(e){} }
+function saveActiveGame(g) { try { localStorage.setItem(ACTIVE_GAME_KEY, g); } catch(e){} }
+function isActiveGameNte() { return _activeGame === 'nte'; }
+// Returns the active game's layouts array (CONSTELLATION_LAYOUTS or NTE_LAYOUTS).
+function getActiveLayouts() { return isActiveGameNte() ? NTE_LAYOUTS : CONSTELLATION_LAYOUTS; }
+
+let _activeLayout = 'anemo';
+function getLayoutKey() { return isActiveGameNte() ? NTE_LAYOUT_KEY : LAYOUT_KEY; }
+function loadLayout() {
+    try { _activeLayout = JSON.parse(localStorage.getItem(getLayoutKey())||'{}').id || (isActiveGameNte() ? 'cosmos' : 'anemo'); } catch(e){ _activeLayout = isActiveGameNte() ? 'cosmos' : 'anemo'; }
+    if (!getActiveLayouts().find(l => l.id===_activeLayout)) _activeLayout = getActiveLayouts()[0].id;
+}
+function saveLayout(id) { try { localStorage.setItem(getLayoutKey(), JSON.stringify({id})); } catch(e){} }
 // Render the constellation stars + connecting lines into #main-menu based on the active preset.
 function renderConstellation() {
     const menu = document.getElementById('main-menu'); if (!menu) return;
-    const preset = CONSTELLATION_LAYOUTS.find(l => l.id===_activeLayout) || CONSTELLATION_LAYOUTS[0];
+    const layouts = getActiveLayouts();
+    const preset = layouts.find(l => l.id===_activeLayout) || layouts[0];
     // Render connecting lines into the SVG <g class="const-lines">. Each line is tagged with
     // data-a/data-b (the two star views it connects) so the hover-highlight can dim lines not
     // connected to the hovered star.
     const linesG = menu.querySelector('.const-lines'); if (linesG) {
-        linesG.innerHTML = preset.lines.map(([a,b]) => {
+        // Regular lines: connect two stars.
+        // If a vline touches the midpoint of two stars, also tag the regular line between
+        // those two stars with the vline's `from` star so hovering the `from` star lights up
+        // the full path (vline + the base line it connects to).
+        const vlineFroms = {}; // map: 'view-calendar|view-map' -> [list of from stars]
+        if (preset.vlines) {
+            preset.vlines.forEach(vl => {
+                if (vl.toMid) { const k = vl.toMid.slice().sort().join('|'); (vlineFroms[k] = vlineFroms[k] || []).push(vl.from); }
+                if (vl.fromMid) { const k = vl.fromMid.slice().sort().join('|'); (vlineFroms[k] = vlineFroms[k] || []).push(vl.to); }
+            });
+        }
+        let linesHtml = preset.lines.map(([a,b]) => {
             const sa = preset.stars[a], sb = preset.stars[b];
-            return `<line x1="${sa.x}" y1="${sa.y}" x2="${sb.x}" y2="${sb.y}" data-a="${a}" data-b="${b}"/>`;
+            const key = [a,b].sort().join('|');
+            const extraFroms = vlineFroms[key] || [];
+            const extraAttrs = extraFroms.map(f => `data-star-${f}`).join(' ');
+            return `<line x1="${sa.x}" y1="${sa.y}" x2="${sb.x}" y2="${sb.y}" data-a="${a}" data-b="${b}" ${extraAttrs}/>`;
         }).join('');
+        // Virtual lines: connect a star to the midpoint of two other stars (or two midpoints).
+        // Format: { from: 'view-gacha', between: ['view-calendar','view-map'] }
+        // or { fromMid: ['view-calendar','view-map'], toMid: ['view-tasks','view-primos'] }
+        // or { from: 'view-gacha', toPoint: {x:51,y:40} } -- arbitrary virtual point
+        if (preset.vlines) {
+            const mid = (a, b) => { const sa = preset.stars[a], sb = preset.stars[b]; return { x: (sa.x+sb.x)/2, y: (sa.y+sb.y)/2 }; };
+            linesHtml += preset.vlines.map(vl => {
+                let x1, y1, x2, y2;
+                if (vl.fromMid) { const m = mid(vl.fromMid[0], vl.fromMid[1]); x1 = m.x; y1 = m.y; }
+                else { const s = preset.stars[vl.from]; x1 = s.x; y1 = s.y; }
+                if (vl.toMid) { const m = mid(vl.toMid[0], vl.toMid[1]); x2 = m.x; y2 = m.y; }
+                else if (vl.toPoint) { x2 = vl.toPoint.x; y2 = vl.toPoint.y; }
+                else { const s = preset.stars[vl.to]; x2 = s.x; y2 = s.y; }
+                // Tag ALL stars this vline touches (from, to, fromMid pair, toMid pair) so
+                // the hover-highlight correctly lights up the line for any related star.
+                const tags = [vl.from, vl.to, ...(vl.fromMid||[]), ...(vl.toMid||[]), ...(vl.also||[])].filter(Boolean);
+                const dataAttrs = tags.map(t => `data-star-${t}`).join(' ');
+                return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ${dataAttrs} data-vline="1"/>`;
+            }).join('');
+        }
+        linesG.innerHTML = linesHtml;
     }
     // Remove old stars (keep the .constellation-sky wrapper).
     menu.querySelectorAll('.const-star').forEach(s => s.remove());
@@ -124,7 +278,9 @@ function renderConstellation() {
         // Hover: highlight only the lines connected to this star (dim the rest).
         btn.addEventListener('mouseenter', () => {
             menu.querySelectorAll('.const-lines line').forEach(ln => {
-                if (ln.dataset.a === view || ln.dataset.b === view) ln.classList.add('highlighted');
+                // Check regular lines (data-a/data-b) and vline tags (data-star-*).
+                const isConnected = ln.dataset.a === view || ln.dataset.b === view || ln.hasAttribute('data-star-' + view);
+                if (isConnected) ln.classList.add('highlighted');
                 else ln.classList.add('dimmed');
             });
         });
@@ -135,7 +291,7 @@ function renderConstellation() {
     });
 }
 function setLayout(id) {
-    if (!CONSTELLATION_LAYOUTS.find(l => l.id===id)) return;
+    if (!getActiveLayouts().find(l => l.id===id)) return;
     _activeLayout = id; saveLayout(id); renderConstellation();
     // Re-trigger the entry animation on the new layout.
     try { animateConstellationEntry(); } catch(e){}
@@ -224,26 +380,100 @@ function mergeDefaults(parsed) {
     return merged;
 }
 
+// ---------- NTE state ----------
+// NTE tracks gacha + the same daily/weekly task loop Genshin has, plus its own counters:
+// - Character pixels (NTE's primogem equivalent; 160 per pull, same as Genshin)
+// - Stamina (NTE's resin equivalent; max 240, regenerates 1 per 6 min — faster than Genshin's 1/8min)
+// - City stamina (weekly pool; max 700, manually set, resets Monday 20:00 UTC)
+function getNteDefaultState() {
+    const now = new Date().toISOString();
+    return {
+        stateVersion: NTE_STATE_VERSION,
+        gachaLog: null,
+        pityState: {},
+        userItemOverrides: {},
+        calendarDisplayYear: new Date().getFullYear(),
+        // NTE daily tasks (same shape as Genshin: {name, completed, streak, isEvent?}).
+        dailyTasks: [
+            { name:'Daily bounties', completed:false, streak:0 },
+            { name:'Operation dispatch', completed:false, streak:0 },
+            { name:'Use all stamina', completed:false, streak:0 },
+            { name:'Complete event (if any)', completed:false, streak:0, isEvent:true },
+        ],
+        weeklyTasks: [
+            { name:'Weekly boss', completed:false, streak:0 },
+        ],
+        dailyStreak: 0,
+        lastDailyReset: now,
+        lastWeeklyReset: now,
+        // Character pixels (NTE's primogem equivalent). 12800 = 80 pulls (160 each).
+        pixelCount: 0,
+        pixelGoal: 12800,
+        // NTE stamina (resin equivalent; max 240, regen 1 per 6 min).
+        resin: { current:0, max:240, lastSetAt: now },
+        // City stamina (weekly pool; max 700, resets Monday 20:00 UTC to max).
+        cityStamina: { current:0, max:700, lastSetAt: now },
+    };
+}
+function mergeNteDefaults(parsed) {
+    const def = getNteDefaultState();
+    const merged = Object.assign({}, def, parsed || {});
+    merged.pityState = merged.pityState || {};
+    merged.userItemOverrides = merged.userItemOverrides || {};
+    merged.stateVersion = NTE_STATE_VERSION;
+    if (typeof merged.calendarDisplayYear !== 'number') merged.calendarDisplayYear = new Date().getFullYear();
+    // Ensure task arrays exist with defaults (older NTE state didn't have tasks).
+    if (!Array.isArray(merged.dailyTasks) || merged.dailyTasks.length===0) merged.dailyTasks = def.dailyTasks;
+    if (!Array.isArray(merged.weeklyTasks) || merged.weeklyTasks.length===0) merged.weeklyTasks = def.weeklyTasks;
+    // Pixels (NTE primogem equivalent).
+    if (typeof merged.pixelCount !== 'number') merged.pixelCount = 0;
+    if (typeof merged.pixelGoal !== 'number') merged.pixelGoal = 12800;
+    if (typeof merged.dailyStreak !== 'number') merged.dailyStreak = 0;
+    if (typeof merged.lastDailyReset !== 'string') merged.lastDailyReset = def.lastDailyReset;
+    if (typeof merged.lastWeeklyReset !== 'string') merged.lastWeeklyReset = def.lastWeeklyReset;
+    // Stamina (NTE resin equivalent; max 240).
+    merged.resin = Object.assign({}, def.resin, merged.resin || {});
+    if (merged.resin.max !== 240) merged.resin.max = 240;
+    if (typeof merged.resin.lastSetAt !== 'string') merged.resin.lastSetAt = def.resin.lastSetAt;
+    // City stamina (weekly; max 700).
+    merged.cityStamina = Object.assign({}, def.cityStamina, merged.cityStamina || {});
+    if (merged.cityStamina.max !== 700) merged.cityStamina.max = 700;
+    if (typeof merged.cityStamina.lastSetAt !== 'string') merged.cityStamina.lastSetAt = def.cityStamina.lastSetAt;
+    return merged;
+}
+
 // ---------- Accounts (multi-account support) ----------
+// All account functions are game-aware: they use NTE_ACCOUNTS_KEY / NTE_DATA_PREFIX
+// when NTE is the active game, and ACCOUNTS_KEY / DATA_PREFIX for Genshin.
 function getAccountsIndex() {
+    const key = isActiveGameNte() ? NTE_ACCOUNTS_KEY : ACCOUNTS_KEY;
     try {
-        const raw = localStorage.getItem(ACCOUNTS_KEY);
+        const raw = localStorage.getItem(key);
         if (raw) return JSON.parse(raw);
     } catch(e){}
-    // First run: migrate any existing v3 data into a default "Main" account.
+    // First run: migrate any existing v3 data into a default "Main" account (Genshin only).
     return null;
 }
 function saveAccountsIndex(idx) {
-    try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(idx)); } catch(e){}
+    const key = isActiveGameNte() ? NTE_ACCOUNTS_KEY : ACCOUNTS_KEY;
+    try { localStorage.setItem(key, JSON.stringify(idx)); } catch(e){}
 }
 function getActiveAccountId() {
     let idx = getAccountsIndex();
     if (idx && idx.activeId) return idx.activeId;
-    // Bootstrap: create a default "Main" account and migrate existing data.
     const id = 'main';
+    const prefix = isActiveGameNte() ? NTE_DATA_PREFIX : DATA_PREFIX;
+    if (isActiveGameNte()) {
+        // NTE: no migration path — just bootstrap a default "Main" account.
+        idx = { activeId: id, list: [{ id, name: 'Main' }] };
+        saveAccountsIndex(idx);
+        try { localStorage.setItem(prefix + id, JSON.stringify(getNteDefaultState())); } catch(e){}
+        return id;
+    }
+    // Genshin: migrate any existing v3 data into a default "Main" account.
     const oldData = localStorage.getItem(STORAGE_KEY);
     if (oldData) {
-        localStorage.setItem(DATA_PREFIX + id, oldData);
+        localStorage.setItem(prefix + id, oldData);
         localStorage.removeItem(STORAGE_KEY);
     }
     idx = { activeId: id, list: [{ id, name: 'Main' }] };
@@ -259,7 +489,10 @@ function getActiveAccountName() {
     }
     return 'Main';
 }
-function accountDataKey() { return DATA_PREFIX + getActiveAccountId(); }
+function accountDataKey() {
+    const prefix = isActiveGameNte() ? NTE_DATA_PREFIX : DATA_PREFIX;
+    return prefix + getActiveAccountId();
+}
 
 // Switch to a different account (loads its state, re-renders everything).
 function switchAccount(accountId) {
@@ -268,8 +501,8 @@ function switchAccount(accountId) {
     idx.activeId = accountId;
     saveAccountsIndex(idx);
     loadState();
-    deriveStandardPool();
-    recomputePityState();
+    if (isActiveGameNte()) { recomputePityState(); }
+    else { deriveStandardPool(); recomputePityState(); }
     renderAll();
     renderAccountPill();
 }
@@ -278,9 +511,10 @@ function createAccount(name) {
     const id = 'acc_' + Date.now();
     idx.list.push({ id, name: name || ('Account ' + (idx.list.length + 1)) });
     saveAccountsIndex(idx);
-    // Initialise this account with a fresh default state.
-    const fresh = getDefaultState();
-    try { localStorage.setItem(DATA_PREFIX + id, JSON.stringify(fresh)); } catch(e){}
+    // Initialise this account with a fresh default state for the active game.
+    const prefix = isActiveGameNte() ? NTE_DATA_PREFIX : DATA_PREFIX;
+    const fresh = isActiveGameNte() ? getNteDefaultState() : getDefaultState();
+    try { localStorage.setItem(prefix + id, JSON.stringify(fresh)); } catch(e){}
     switchAccount(id);
 }
 function renameAccount(accountId, newName) {
@@ -294,17 +528,19 @@ async function deleteAccount(accountId) {
     const ok = await showModal({title:'Delete Account',message:'This permanently deletes this account and all its data. Continue?',type:'confirm'});
     if (!ok) return;
     idx.list = idx.list.filter(a => a.id !== accountId);
-    try { localStorage.removeItem(DATA_PREFIX + accountId); } catch(e){}
+    const prefix = isActiveGameNte() ? NTE_DATA_PREFIX : DATA_PREFIX;
+    try { localStorage.removeItem(prefix + accountId); } catch(e){}
     if (idx.activeId === accountId) idx.activeId = idx.list[0].id;
     saveAccountsIndex(idx);
     loadState();
-    deriveStandardPool();
-    recomputePityState();
+    if (isActiveGameNte()) { recomputePityState(); }
+    else { deriveStandardPool(); recomputePityState(); }
     renderAll();
     renderAccountPill();
 }
 
 function loadState() {
+    if (isActiveGameNte()) { loadNteState(); return; }
     const key = accountDataKey();
     let migrated = false;
     const savedV3 = localStorage.getItem(key);
@@ -319,6 +555,17 @@ function loadState() {
         } else { state = getDefaultState(); }
     }
     if (migrated) saveState();
+}
+function loadNteState() {
+    const key = accountDataKey();
+    const saved = localStorage.getItem(key);
+    if (saved) {
+        try { state = mergeNteDefaults(JSON.parse(saved)); }
+        catch(e) { state = getNteDefaultState(); }
+    } else {
+        state = getNteDefaultState();
+    }
+    saveState();
 }
 function saveState() { try { localStorage.setItem(accountDataKey(), JSON.stringify(state)); } catch(e) {} }
 
@@ -357,8 +604,14 @@ function showModal(opts) {
 }
 
 // ---------- Theme ----------
+// Returns the active game's theme object (THEMES for Genshin, NTE_THEMES for NTE).
+function getActiveThemes() { return isActiveGameNte() ? NTE_THEMES : THEMES; }
+// Returns the default theme name for the active game.
+function getDefaultThemeName() { return isActiveGameNte() ? 'Cosmos' : 'Anemo'; }
 function applyTheme(themeName, customAccent) {
-    const p = THEMES[themeName] || THEMES.Anemo;
+    const themes = getActiveThemes();
+    const defName = getDefaultThemeName();
+    const p = themes[themeName] || themes[defName] || THEMES.Anemo;
     const r = document.documentElement.style;
     r.setProperty('--bg-color', p.bg);
     r.setProperty('--card-color', p.card);
@@ -367,16 +620,25 @@ function applyTheme(themeName, customAccent) {
     r.setProperty('--accent-dim', hexToDim(customAccent || p.accent));
     r.setProperty('--primary-text', p.primary);
     r.setProperty('--secondary-text', p.secondary);
-    const icon = $('header-element-icon');
-    if (icon) { icon.style.background = customAccent || p.accent; icon.style.boxShadow = `0 0 0 2px ${p.bg}, 0 0 0 3px ${customAccent || p.accent}`; }
+    // NTE themes use a gradient overlay on the body (a subtle radial glow tinted to the
+    // element's color) to visually distinguish them from Genshin's flat-color themes.
+    // Genshin themes have no gradient field, so we clear it.
+    document.body.style.backgroundImage = 'none';
     _activeTheme = themeName; _customAccent = customAccent || null;
 }
+// Returns the active game's theme storage key (separate per game so switching games
+// doesn't overwrite the other game's saved theme).
+function getThemeKey() { return isActiveGameNte() ? NTE_THEME_KEY : THEME_KEY; }
 function loadTheme() {
-    let t='Anemo', ca=null;
-    try { const s=JSON.parse(localStorage.getItem(THEME_KEY)||'{}'); t=s.theme||t; ca=s.customAccent||null; } catch(e){}
+    const themes = getActiveThemes();
+    const defName = getDefaultThemeName();
+    let t = defName, ca = null;
+    try { const s = JSON.parse(localStorage.getItem(getThemeKey()) || '{}'); t = s.theme || t; ca = s.customAccent || null; } catch(e) {}
+    // If the saved theme doesn't exist in the active game's theme set, fall back to the default.
+    if (!themes[t]) { t = defName; ca = null; }
     applyTheme(t, ca);
 }
-function saveTheme(t, ca) { try { localStorage.setItem(THEME_KEY, JSON.stringify({theme:t, customAccent:ca||null})); } catch(e){} }
+function saveTheme(t, ca) { try { localStorage.setItem(getThemeKey(), JSON.stringify({theme:t, customAccent:ca||null})); } catch(e){} }
 
 
 // ---------- Account pill (header) ----------
@@ -469,6 +731,7 @@ async function loadItemDB() {
     deriveStandardPool();
 }
 function deriveStandardPool() {
+    if (isActiveGameNte()) return; // NTE has no standard 5★ pool tracking.
     const pool = new Set(['Keqing','Mona','Qiqi','Diluc','Jean','Dehya','Tighnari']);
     if (state.gachaLog && Array.isArray(state.gachaLog.wishes)) {
         state.gachaLog.wishes.filter(w => w.gacha_type==='200' && getItemRarity(w.name)===5).forEach(w => pool.add(w.name));
@@ -568,7 +831,99 @@ function analyzeBannerData(wishes, cfg) {
         pity: { current5:p5, current4:p4, guaranteed, fatePoints },
     };
 }
+
+// ---------- NTE pity engine ----------
+// Mirrors analyzeBannerData but adapted to NTE's system:
+//  • Only `dice` rows count toward pity. `points_gift` and `chase_reward` are bonus
+//    rewards (displayed but don't advance pity).
+//  • Sort oldest -> newest by timestamp ASC; within a timestamp group, ordinal 0 is the
+//    newest within the group, so we sort ordinal DESCENDING within the group.
+//  • S-rank (rarity 5) resets the pity counter; A-rank (rarity 4) resets the 4★ counter.
+//  • No 50/50 tracking (NTE's system isn't documented as having one).
+// Returns the same shape as analyzeBannerData so renderNteGachaStats can mirror the
+// Genshin view structure.
+function estimateNteFiveStarProb(current5, cfg) {
+    if (current5 >= cfg.hardPity) return 100;
+    if (current5 < cfg.softPity) return 0.6;
+    return 0.6 + 6 * (current5 - cfg.softPity + 1);
+}
+function analyzeNteBannerData(wishes, cfg) {
+    if (!wishes || wishes.length === 0) return null;
+    // Separate dice (real pulls) from bonus rewards.
+    const diceWishes = wishes.filter(w => !w.result_type || w.result_type === 'dice');
+    const bonusCount = wishes.length - diceWishes.length;
+    // Sort oldest -> newest. Within a timestamp group, ordinal 0 = newest within the group,
+    // so we sort ordinal DESCENDING within the group (highest ordinal = oldest = first).
+    const oldToNew = [...diceWishes].sort((a, b) => {
+        const ta = a.time ? new Date(a.time).getTime() : 0;
+        const tb = b.time ? new Date(b.time).getTime() : 0;
+        if (ta !== tb) return ta - tb;
+        const oa = (a.ordinal != null && !isNaN(a.ordinal)) ? Number(a.ordinal) : 0;
+        const ob = (b.ordinal != null && !isNaN(b.ordinal)) ? Number(b.ordinal) : 0;
+        return ob - oa; // ordinal DESC within the same timestamp group
+    });
+    // Pity: S-rank CHARACTERS reset the S-rank pity counter. S-rank items (like Fabricated
+    // Dice, Warp Piece) do NOT reset it — only characters count. A-rank resets the A-rank
+    // counter. Only dice rows (real pulls) count toward pity.
+    let fives=[], fours=[], threes=[], p5=0, p4=0;
+    oldToNew.forEach(w => {
+        p5++; p4++;
+        const rarity = parseInt(w.rank_type, 10);
+        const isCharacter = (w.item_type === 'character');
+        const pd = { name:w.name, pity:p5, time:w.time, item_type:w.item_type, rank_type:w.rank_type, result_type:w.result_type };
+        if (rarity === 5 && isCharacter) {
+            // S-rank CHARACTER — resets both counters and goes in the S-rank pulls list.
+            fives.push(pd); p5 = 0; p4 = 0;
+        } else if (rarity === 5) {
+            // S-rank ITEM (Fabricated Dice, Warp Piece, etc.) — does NOT reset pity, not
+            // shown in the S-rank character pulls list. Still counted toward the pull total.
+        } else if (rarity === 4) {
+            fours.push(Object.assign({}, w, { pity:p4 })); p4 = 0;
+        } else if (rarity === 3) {
+            threes.push(Object.assign({}, w, { pity:p5 }));
+        }
+    });
+    const avg = a => a.length ? a.reduce((s,i)=>s+i.pity,0)/a.length : 0;
+    const diceCount = diceWishes.length;
+    return {
+        totalWishes: wishes.length,
+        totalDice: diceCount,
+        totalBonus: bonusCount,
+        five:  { list:fives.slice().reverse(),  total:fives.length,  avgPity:avg(fives),  percent: diceCount ? (fives.length / diceCount) * 100 : 0 },
+        four:  { list:fours.slice().reverse(),  total:fours.length,  avgPity:avg(fours),  percent: diceCount ? (fours.length / diceCount) * 100 : 0 },
+        three: { list:threes.slice().reverse(), total:threes.length, percent: diceCount ? (threes.length / diceCount) * 100 : 0 },
+        pity: { current5:p5, current4:p4 },
+    };
+}
+
+// ---------- NTE export parser ----------
+// Parses the nte-history-export JSON format (one file per banner) into our common wish
+// format. See https://github.com/Golumpa/nte-exporter for the format spec.
+function parseNteExport(data) {
+    if (!data || data.format !== 'nte-history-export') {
+        throw new Error('Not a valid NTE export file (missing "format": "nte-history-export" field).');
+    }
+    const records = Array.isArray(data.records) ? data.records : [];
+    const wishes = records.map(r => {
+        // NTE timestamps are "YYYY-MM-DD HH:mm:ss" — convert to ISO-friendly "YYYY-MM-DDTHH:mm:ss"
+        // so Date parsing is reliable across browsers.
+        const isoTime = r.timestamp ? String(r.timestamp).replace(' ', 'T') : r.timestamp;
+        const rarity = NTE_RANK_TO_RARITY[r.reward_rank] || 3;
+        return {
+            id: r.uid,
+            gacha_type: r.pool_group_id,
+            name: r.reward_name,
+            rank_type: String(rarity),
+            time: isoTime,
+            item_type: r.reward_type,
+            result_type: r.result_type,
+            ordinal: r.timestamp_group_ordinal,
+        };
+    });
+    return { format: 'nte', wishes, uid: data.user_uid || '' };
+}
 function recomputePityState() {
+    if (isActiveGameNte()) { recomputeNtePityState(); return; }
     const wishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes : [];
     const next = {};
     BANNERS.forEach(b => {
@@ -584,7 +939,21 @@ function recomputePityState() {
     });
     state.pityState = next; saveState();
 }
+// NTE pity engine — only counts dice pulls toward pity, no 50/50 tracking.
+function recomputeNtePityState() {
+    const wishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes : [];
+    const next = {};
+    NTE_BANNERS.forEach(b => {
+        const bw = wishes.filter(w => w.gacha_type === b.id);
+        const s = analyzeNteBannerData(bw, b);
+        next[b.id] = s
+            ? { current5: s.pity.current5, current4: s.pity.current4 }
+            : { current5: 0, current4: 0 };
+    });
+    state.pityState = next; saveState();
+}
 async function checkUnknownItems() {
+    if (isActiveGameNte()) return; // NTE pulls already carry rank_type from the export.
     const log = state.gachaLog; if (!log || !log.wishes) return;
     const seen = new Set();
     log.wishes.forEach(w => {
@@ -608,37 +977,80 @@ async function checkUnknownItems() {
     deriveStandardPool(); recomputePityState();
 }
 
-// ---------- Resin ----------
+// ---------- Resin / Stamina ----------
+// Genshin uses Resin (max 200, regen 1 per 8 min). NTE uses Stamina (max 240, regen 1 per 6 min).
+// Both share the same state.resin shape, so we branch on the active game for the regen rate and cap.
+function resinRegenRateMin() { return isActiveGameNte() ? 6 : 8; }
+function resinDefaultMax()   { return isActiveGameNte() ? 240 : 200; }
+function resinLabel()        { return isActiveGameNte() ? 'Stamina' : 'Resin'; }
+
 function getCurrentResin() {
     const r = state.resin; if (!r || !r.lastSetAt) return r ? r.current : 0;
     const elapsedMin = (Date.now()-new Date(r.lastSetAt).getTime())/1000/60;
-    return Math.min((r.current||0)+Math.floor(elapsedMin/8), r.max||200);
+    const rate = resinRegenRateMin();
+    return Math.min((r.current||0)+Math.floor(elapsedMin/rate), r.max||resinDefaultMax());
 }
 function timeToFullResin() {
-    const r = state.resin, cur = getCurrentResin(), max = r.max||200;
+    const r = state.resin; if (!r) return 'Full';
+    const cur = getCurrentResin(), max = r.max||resinDefaultMax();
     if (cur>=max) return 'Full';
+    const rate = resinRegenRateMin();
     const needed = max-cur;
-    const minsNeeded = needed*8 - (Math.floor((Date.now()-new Date(r.lastSetAt).getTime())/1000/60)%8);
+    const minsNeeded = needed*rate - (Math.floor((Date.now()-new Date(r.lastSetAt).getTime())/1000/60)%rate);
     return `Full in ${Math.floor(minsNeeded/60)}h ${minsNeeded%60}m`;
 }
 async function openSetResin() {
-    const v = await showModal({ type:'prompt', title:'Set Current Resin', message:'Enter your current resin from the game.', defaultValue:String(getCurrentResin()), placeholder:'0 - 160' });
+    const label = resinLabel(), max = resinDefaultMax();
+    const v = await showModal({ type:'prompt', title:`Set Current ${label}`, message:`Enter your current ${label.toLowerCase()} from the game.`, defaultValue:String(getCurrentResin()), placeholder:`0 - ${max}` });
     if (v===false) return;
     const n = parseInt(v,10);
     if (isNaN(n)||n<0) { await showModal({type:'alert',title:'Invalid Input',message:'Please enter a valid number.',confirmText:'OK'}); return; }
-    state.resin.current = Math.min(n, state.resin.max||200);
+    state.resin.current = Math.min(n, state.resin.max||max);
     state.resin.lastSetAt = new Date().toISOString();
     saveState(); renderResinWidget(); renderStatusBar();
 }
 function renderResinWidget() {
     const el = $('resin-widget'); if (!el) return;
-    const cur = getCurrentResin(), max = state.resin.max||200, pct = (cur/max)*100;
-    el.innerHTML = `<div class="resin-display"><span class="resin-value">${cur}<span class="resin-max"> / ${max}</span></span></div><div class="resin-bar-wrap"><div class="resin-bar"><div class="resin-bar-fill" style="width:${pct}%"></div></div><div class="resin-time">${timeToFullResin()}</div></div><button class="btn btn-secondary" id="set-resin-btn">Set Resin</button>`;
+    if (!state.resin) return; // Defensive: state.resin may be undefined for some accounts.
+    const cur = getCurrentResin(), max = state.resin.max||resinDefaultMax(), pct = (cur/max)*100;
+    const label = resinLabel();
+    el.innerHTML = `<div class="resin-display"><span class="resin-value">${cur}<span class="resin-max"> / ${max}</span></span></div><div class="resin-bar-wrap"><div class="resin-bar"><div class="resin-bar-fill" style="width:${pct}%"></div></div><div class="resin-time">${timeToFullResin()}</div></div><button class="btn btn-secondary" id="set-resin-btn">Set ${label}</button>`;
     const b = $('set-resin-btn'); if (b) b.addEventListener('click', openSetResin);
+}
+
+// ---------- NTE City Stamina (weekly pool, max 700) ----------
+// City stamina does NOT regenerate — it's a weekly allowance (max 700) that resets on the
+// Monday 20:00 UTC weekly boundary (same as the weekly task reset). Returns the current value.
+function getNteCityStamina() {
+    const cs = state.cityStamina; if (!cs) return 0;
+    return Math.max(0, Math.min(cs.current||0, cs.max||700));
+}
+async function openSetCityStamina() {
+    const v = await showModal({ type:'prompt', title:'Set City Stamina', message:'Enter your current city stamina from the game (max 700).', defaultValue:String(getNteCityStamina()), placeholder:'0 - 700' });
+    if (v===false) return;
+    const n = parseInt(v,10);
+    if (isNaN(n)||n<0) { await showModal({type:'alert',title:'Invalid Input',message:'Please enter a valid number.',confirmText:'OK'}); return; }
+    state.cityStamina.current = Math.min(n, state.cityStamina.max||700);
+    state.cityStamina.lastSetAt = new Date().toISOString();
+    saveState(); renderCityStaminaWidget(); renderStatusBar();
+}
+function renderCityStaminaWidget() {
+    const el = $('city-stamina-widget'); if (!el) return;
+    if (!state.cityStamina) return;
+    const cur = getNteCityStamina(), max = state.cityStamina.max||700, pct = (cur/max)*100;
+    const d = daysUntilWeeklyReset();
+    el.innerHTML = `<div class="resin-display"><span class="resin-value">${cur}<span class="resin-max"> / ${max}</span></span></div><div class="resin-bar-wrap"><div class="resin-bar"><div class="resin-bar-fill" style="width:${pct}%"></div></div><div class="resin-time">Resets in ${d} ${d===1?'day':'days'}</div></div><button class="btn btn-secondary" id="set-city-btn">Set</button>`;
+    const b = $('set-city-btn'); if (b) b.addEventListener('click', openSetCityStamina);
 }
 function startResinTicker() {
     if (_resinInterval) clearInterval(_resinInterval);
-    _resinInterval = setInterval(() => { renderResinWidget(); renderStatusBar(); }, 60000);
+    // Ticks every 60s: refreshes the resin/stamina widget, city stamina widget (NTE),
+    // and the status bar (which shows live stamina + city stamina counters for NTE).
+    _resinInterval = setInterval(() => {
+        try { renderResinWidget(); } catch(e) {}
+        try { renderCityStaminaWidget(); } catch(e) {}
+        try { renderStatusBar(); } catch(e) {}
+    }, 60000);
 }
 
 // ---------- Reset logic ----------
@@ -670,6 +1082,11 @@ async function performDailyReset(isAuto) {
     if (getLastWeeklyResetUTC() > lastW) {
         state.weeklyTasks.forEach(t => { t.streak = t.completed ? (t.streak||0)+1 : 0; t.completed = false; });
         state.lastWeeklyReset = getLastWeeklyResetUTC().toISOString();
+        // NTE: refresh the weekly city stamina pool back to max on the Monday reset.
+        if (isActiveGameNte() && state.cityStamina) {
+            state.cityStamina.current = state.cityStamina.max || 700;
+            state.cityStamina.lastSetAt = new Date().toISOString();
+        }
     }
     saveState(); renderAll();
     if (!isAuto) await showModal({type:'alert',title:'Reset Complete',message:'Daily and weekly tasks have been reset.',confirmText:'OK'});
@@ -680,11 +1097,16 @@ async function checkForAutomaticResets() {
 }
 
 // ---------- Tasks ----------
+// Both Genshin and NTE share this view. Genshin shows Resin at the top; NTE shows Stamina
+// (max 240) AND City Stamina (max 700, weekly). The daily/weekly task lists have the same
+// UI for both games.
 function renderTasks() {
     const el = $('view-tasks'); if (!el) return;
+    const isNte = isActiveGameNte();
     el.innerHTML = `
         <div class="single-column-view" style="max-width:820px;margin:0 auto 20px auto;">
             <div class="resin-widget" id="resin-widget"></div>
+            ${isNte ? '<div class="resin-widget" id="city-stamina-widget"></div>' : ''}
         </div>
         <div class="app-layout">
             <div class="layout-column" style="flex:1;min-width:300px;">
@@ -737,6 +1159,7 @@ function renderTasks() {
         }
     }
     renderTaskLists(); renderResinWidget();
+    if (isNte) renderCityStaminaWidget();
     $('daily-add-btn').addEventListener('click', () => addTask('daily'));
     $('weekly-add-btn').addEventListener('click', () => addTask('weekly'));
     $('daily-new-name').addEventListener('keydown', e => { if (e.key==='Enter') addTask('daily'); });
@@ -800,7 +1223,10 @@ function addTask(type) {
 async function toggleTask(type, index) {
     const list = type==='daily'?state.dailyTasks:state.weeklyTasks;
     const task = list[index]; if (!task || task.completed) return;
-    if (type==='daily' && task.name.toLowerCase().includes('commission')) {
+    const isNte = isActiveGameNte();
+    // Genshin: completing a daily commission task auto-adds 60 primogems.
+    // NTE has no commissions, so this auto-add only fires for Genshin.
+    if (type==='daily' && !isNte && task.name.toLowerCase().includes('commission')) {
         state.primogemCount += 60;
         await showModal({type:'alert',title:'Primogems Added!',message:'+60 Primogems from daily commissions have been added.',confirmText:'OK'});
     }
@@ -809,10 +1235,17 @@ async function toggleTask(type, index) {
 async function handleEventTaskClick(type, index) {
     const task = state[type==='daily'?'dailyTasks':'weeklyTasks'][index];
     if (!task || task.completed) return;
-    const v = await showModal({type:'prompt',title:'Event Primogems',message:'How many Primogems did you earn?',placeholder:'e.g., 420'});
+    const isNte = isActiveGameNte();
+    const title = isNte ? 'Event Pixels' : 'Event Primogems';
+    const msg = isNte ? 'How many pixels did you earn?' : 'How many Primogems did you earn?';
+    const v = await showModal({type:'prompt',title,message:msg,placeholder:'e.g., 420'});
     if (v===false) return;
     const n = parseInt(v,10);
-    if (!isNaN(n) && n>=0) { state.primogemCount += n; task.completed = true; saveState(); renderTasks(); renderPrimos(); renderStatusBar(); }
+    if (!isNaN(n) && n>=0) {
+        if (isNte) state.pixelCount = (state.pixelCount||0)+n;
+        else state.primogemCount = (state.primogemCount||0)+n;
+        task.completed = true; saveState(); renderTasks(); renderPrimos(); renderStatusBar();
+    }
     else if (v) await showModal({type:'alert',title:'Invalid Input',message:'Please enter a valid number.',confirmText:'OK'});
 }
 
@@ -874,6 +1307,9 @@ function rerenderPulls(bannerId) {
 
 function renderGachaStats() {
     const view = $('view-gacha'); if (!view) return;
+    // NTE: render the NTE-specific gacha view (different banners, S/A/B rarities,
+    // file-only multi-file import for nte-history-export files).
+    if (isActiveGameNte()) { renderNteGachaStats(view); return; }
     const psEsc = PS_SCRIPT.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     view.innerHTML = `
         <div class="single-column-view">
@@ -1033,6 +1469,243 @@ function emptyBannerCard(cfg) {
         <div class="pity-block"><div class="pity-info"><span class="pity-title">5\u2605 Pity</span><span class="pity-guarantee">${note}</span></div><div class="pity-value-display rarity-5">0</div></div>
         <div class="probability-row">~0.6% chance next pull is 5\u2605</div>
         <div class="pity-block"><div class="pity-info"><span class="pity-title">4\u2605 Pity</span><span class="pity-guarantee">Guaranteed at ${cfg.hardPity4}</span></div><div class="pity-value-display rarity-4">0</div></div></div>`;
+}
+
+// ---------- NTE gacha view ----------
+// Renders the NTE-specific gacha analyzer. Uses NTE_BANNERS + analyzeNteBannerData,
+// shows S/A/B rarities, and provides a file-only multi-file import for nte-history-export.
+function renderNteGachaStats(view) {
+    view.innerHTML = `
+        <div class="single-column-view">
+            <h2 style="text-align:center;">NTE Gacha Log Analyzer</h2>
+            <details class="instructions-container"><summary>How to export your NTE wish history</summary>
+                <div style="padding:0 16px 16px;">
+                    <p style="margin:0 0 10px;line-height:1.6;">NTE doesn't expose a wish-history URL like Genshin. Use the community exporter tool to capture your pulls:</p>
+                    <ol style="padding-left:20px;margin:0;line-height:1.6;">
+                        <li>Download <b>nte-history-exporter.exe</b> from the <a href="https://github.com/Golumpa/nte-exporter/releases" target="_blank" rel="noopener" style="color:var(--accent);">Releases page</a> (no Python install needed — it's a standalone .exe).</li>
+                        <li>If prompted, install <a href="https://npcap.com/dist/npcap-1.79.exe" target="_blank" rel="noopener" style="color:var(--accent);">Npcap</a> (the packet capture library the tool uses). Accept the default options during install.</li>
+                        <li>Run <b>nte-history-exporter.exe</b> <em>before</em> launching NTE (this lets it auto-detect your UID).</li>
+                        <li>Open NTE and view the wish history for <b>each banner</b> (Standard Board, Limited Character Board, Arc Miracle Box). Scroll through all pages — the tool captures the data as it loads.</li>
+                        <li>Press any key in the exporter window to stop capturing. It saves one JSON file per banner in the <code>exports/</code> folder.</li>
+                        <li>Click <b>Import NTE Wishes File</b> below and select all the exported JSON files at once (you can pick multiple).</li>
+                    </ol>
+                    <p style="margin:10px 0 0;font-size:0.85em;color:var(--secondary-text);">Source: <a href="https://github.com/Golumpa/nte-exporter" target="_blank" rel="noopener" style="color:var(--accent);">github.com/Golumpa/nte-exporter</a></p>
+                </div>
+            </details>
+            <div class="controls-group" style="max-width:400px;margin:0 auto 10px auto;">
+                <button id="import-nte-wish-btn" class="btn btn-action">Import NTE Wishes File</button>
+            </div>
+            <div class="wish-data-row">
+                <button id="export-nte-wish-btn" class="btn btn-secondary" title="Export your NTE wish history to JSON">Export Wishes</button>
+                <input type="file" id="nte-wish-file-input" accept=".json,application/json" multiple style="display:none;">
+            </div>
+            <div id="gacha-last-import" class="last-import-row"></div>
+            <div id="gacha-stats-container"></div>
+        </div>`;
+    $('import-nte-wish-btn').addEventListener('click', () => $('nte-wish-file-input').click());
+    $('nte-wish-file-input').addEventListener('change', importNteWishFile);
+    $('export-nte-wish-btn').addEventListener('click', exportNteWishes);
+    // Last import info
+    const lastImp = $('gacha-last-import');
+    const li = state.gachaLog && state.gachaLog.lastImport;
+    if (li) {
+        const mins = Math.floor((Date.now() - new Date(li).getTime()) / 60000);
+        let txt = mins < 1 ? 'just now' : mins < 60 ? `${mins} minute${mins === 1 ? '' : 's'} ago` : mins < 1440 ? `${Math.floor(mins / 60)} hour${Math.floor(mins / 60) === 1 ? '' : 's'} ago` : new Date(li).toLocaleDateString();
+        lastImp.innerHTML = `Last imported: ${txt}`;
+    }
+    const container = $('gacha-stats-container');
+    if (!state.gachaLog || !state.gachaLog.wishes || state.gachaLog.wishes.length === 0) {
+        container.innerHTML = `<p class="import-status">No NTE gacha data found. Please import your wish history using the button above.</p>`;
+        return;
+    }
+    const allWishes = state.gachaLog.wishes;
+    const f = (n, d) => (n || 0).toFixed(d == null ? 2 : d);
+    const pityCls = (p, soft) => p >= soft ? 'pity-high' : p <= 20 ? 'pity-low' : 'pity-mid';
+    let html = '<div class="gacha-view-layout">';
+    NTE_BANNERS.forEach(cfg => {
+        const bw = allWishes.filter(w => w.gacha_type === cfg.id);
+        const s = analyzeNteBannerData(bw, cfg);
+        if (!s) { html += emptyNteBannerCard(cfg); return; }
+        const bonusCount = s.totalBonus;
+        const inSoft = s.pity.current5 >= cfg.softPity;
+        const prob = estimateNteFiveStarProb(s.pity.current5, cfg);
+        let details = '<div class="gacha-details-grid">';
+        details += `<div class="gacha-grid-header"></div><div class="gacha-grid-header">Total</div><div class="gacha-grid-header">Percent</div><div class="gacha-grid-header">Pity AVG</div>`;
+        details += `<div class="gacha-grid-label" style="color:var(--gold)">S</div><div class="gacha-grid-value gold">${s.five.total}</div><div class="gacha-grid-value">${f(s.five.percent, 2)}%</div><div class="gacha-grid-value gold">${f(s.five.avgPity, 1)}</div>`;
+        details += `<div class="gacha-grid-label" style="color:var(--purple)">A</div><div class="gacha-grid-value purple">${s.four.total}</div><div class="gacha-grid-value">${f(s.four.percent, 2)}%</div><div class="gacha-grid-value">${f(s.four.avgPity, 2)}</div>`;
+        details += `<div class="gacha-grid-label" style="color:var(--light-blue)">B</div><div class="gacha-grid-value" style="color:var(--light-blue)">${s.three.total}</div><div class="gacha-grid-value">${f(s.three.percent, 2)}%</div><div class="gacha-grid-value">-</div>`;
+        if (bonusCount > 0) {
+            details += `<div class="gacha-grid-label indented">Bonus rewards</div><div class="gacha-grid-value">${bonusCount}</div><div class="gacha-grid-value">-</div><div class="gacha-grid-value">-</div>`;
+        }
+        details += '</div>';
+        details += `<button class="btn btn-secondary view-all-pulls-btn" data-banner="${cfg.id}" style="margin-top:12px;width:100%;">View All ${bw.length} Pulls</button>`;
+        if (s.five.list.length > 0) {
+            const opts = GACHA_SORT_OPTIONS.filter(o => ['newest', 'oldest', 'pity-hi', 'pity-lo', 'name'].includes(o.id));
+            const sorted = sortPulls(s.five.list, _gachaSort);
+            const pullsHtml = sorted.map(p => {
+                const rarityTag = '<span class="pull-rarity gold">S</span>';
+                const date = p.time ? new Date(p.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '';
+                return `<div class="gacha-pull"><span class="pull-name">${escHtml(p.name)}</span>${rarityTag}<span class="pull-date">${date}</span><span class="pity-value ${pityCls(p.pity, cfg.softPity)}">${p.pity}</span></div>`;
+            }).join('');
+            details += `<div class="gacha-pulls-header"><label class="pull-sort-label">Sort S characters: <select class="pull-sort" data-banner="${cfg.id}">${opts.map(o => `<option value="${o.id}" ${o.id === _gachaSort ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label><span class="pull-count-text">${s.five.list.length} total</span></div><div class="gacha-pulls-container" data-pulls-banner="${cfg.id}">${pullsHtml}</div>`;
+        }
+        const softCls = inSoft ? 'soft-pity' : '';
+        const lifetimeNote = `${bw.length} records (${s.totalDice} dice + ${bonusCount} bonus)`;
+        html += `<div class="gacha-banner-card">
+            <h3>${cfg.name}</h3>
+            <div class="pity-block"><div class="pity-info"><span class="pity-title">Lifetime Pulls</span><span class="pity-guarantee">${lifetimeNote}</span></div><div class="pity-value-display lifetime">${bw.length}</div></div>
+            <div class="pity-block"><div class="pity-info"><span class="pity-title">S-Rank Pity</span><span class="pity-guarantee ${inSoft ? 'soft-pity-active' : ''}">${inSoft ? 'Soft pity active' : `Guaranteed at ${cfg.hardPity}`}</span></div><div class="pity-value-display rarity-5 ${softCls}">${s.pity.current5}</div></div>
+            <div class="probability-row">~${prob.toFixed(1)}% chance next pull is S-rank character</div>
+            <div class="pity-block"><div class="pity-info"><span class="pity-title">A-Rank Pity</span><span class="pity-guarantee">Guaranteed at ${cfg.hardPity4}</span></div><div class="pity-value-display rarity-4">${s.pity.current4}</div></div>
+            <details class="gacha-details-wrapper"><summary>Show Full Stats</summary><div class="gacha-details-content">${details}</div></details>
+        </div>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+    // Bind sort dropdowns — re-render only that banner's pulls (in-place, no full rebuild).
+    container.querySelectorAll('.pull-sort').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+            _gachaSort = e.target.value;
+            container.querySelectorAll('.pull-sort').forEach(s => { if (s !== e.target) s.value = _gachaSort; });
+            NTE_BANNERS.forEach(b => rerenderNtePulls(b.id));
+        });
+    });
+    // Bind "View all pulls" buttons — open a modal listing every pull, color-coded by rarity.
+    container.querySelectorAll('.view-all-pulls-btn').forEach(btn => {
+        btn.addEventListener('click', () => showNteAllPullsModal(btn.dataset.banner));
+    });
+}
+function emptyNteBannerCard(cfg) {
+    return `<div class="gacha-banner-card"><h3>${cfg.name}</h3>
+        <div class="pity-block"><div class="pity-info"><span class="pity-title">Lifetime Pulls</span></div><div class="pity-value-display lifetime">0</div></div>
+        <div class="pity-block"><div class="pity-info"><span class="pity-title">S-Rank Pity</span><span class="pity-guarantee">No pulls yet</span></div><div class="pity-value-display rarity-5">0</div></div>
+        <div class="probability-row">~0.6% chance next pull is S-rank character</div>
+        <div class="pity-block"><div class="pity-info"><span class="pity-title">A-Rank Pity</span><span class="pity-guarantee">Guaranteed at ${cfg.hardPity4}</span></div><div class="pity-value-display rarity-4">0</div></div></div>`;
+}
+// Re-render only the pulls container for one NTE banner card (keeps the sort dropdown stable).
+function rerenderNtePulls(bannerId) {
+    const cfg = NTE_BANNERS.find(b => b.id === bannerId); if (!cfg) return;
+    const allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes : [];
+    const bw = allWishes.filter(w => w.gacha_type === bannerId);
+    const s = analyzeNteBannerData(bw, cfg); if (!s) return;
+    const wrap = document.querySelector(`[data-pulls-banner="${bannerId}"]`);
+    if (!wrap) return;
+    const pityCls = p => p >= cfg.softPity ? 'pity-high' : p <= 20 ? 'pity-low' : 'pity-mid';
+    const sorted = sortPulls(s.five.list, _gachaSort);
+    wrap.innerHTML = sorted.map(p => {
+        const rarityTag = '<span class="pull-rarity gold">S</span>';
+        const date = p.time ? new Date(p.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '';
+        return `<div class="gacha-pull"><span class="pull-name">${escHtml(p.name)}</span>${rarityTag}<span class="pull-date">${date}</span><span class="pity-value ${pityCls(p.pity)}">${p.pity}</span></div>`;
+    }).join('');
+}
+// Modal showing every pull on an NTE banner, color-coded by rarity, with bonus markers.
+async function showNteAllPullsModal(bannerId) {
+    const cfg = NTE_BANNERS.find(b => b.id === bannerId); if (!cfg) return;
+    const allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes : [];
+    const bw = allWishes.filter(w => w.gacha_type === bannerId);
+    // newest first
+    const sorted = bw.slice().sort((a, b) => new Date(b.time) - new Date(a.time));
+    const listHtml = sorted.map(w => {
+        const rarity = parseInt(w.rank_type, 10) || 3;
+        const rankLabel = NTE_RARITY_TO_RANK[rarity] || '?';
+        const date = w.time ? new Date(w.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '';
+        const isBonus = w.result_type && w.result_type !== 'dice';
+        const typeTag = isBonus
+            ? `<span class="all-pull-type" style="color:var(--yellow)">bonus</span>`
+            : `<span class="all-pull-type">dice</span>`;
+        return `<li class="all-pull rarity-${rarity}"><span class="all-pull-rarity">${rankLabel}</span><span class="all-pull-name">${escHtml(w.name)}</span>${typeTag}<span class="all-pull-date">${date}</span></li>`;
+    }).join('');
+    await showModal({
+        title: `${cfg.name} \u2014 All Pulls (${sorted.length})`,
+        customHtml: `<ul class="all-pulls-list">${listHtml}</ul>`,
+        confirmText: 'Close',
+    });
+}
+// Import one or more NTE export JSON files. Each file is one banner. Records are merged
+// and deduplicated by record uid. A confirmation step shows the new-wish count and the
+// number of distinct banners seen.
+async function importNteWishFile(e) {
+    const files = e.target.files && Array.from(e.target.files);
+    e.target.value = '';
+    if (!files || files.length === 0) return;
+    try {
+        let allParsed = [];
+        let detectedUid = '';
+        const bannerIdsSeen = new Set();
+        for (const file of files) {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            const parsed = parseNteExport(data);
+            if (parsed.uid) detectedUid = parsed.uid;
+            parsed.wishes.forEach(w => bannerIdsSeen.add(w.gacha_type));
+            allParsed = allParsed.concat(parsed.wishes);
+        }
+        // Dedup within the parsed set (in case the user picked the same file twice).
+        const uniqueParsed = Array.from(new Map(allParsed.map(w => [w.id, w])).values());
+        const existingWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes : [];
+        const existingIds = new Set(existingWishes.map(w => w.id));
+        let added = 0;
+        const merged = existingWishes.slice();
+        uniqueParsed.forEach(w => {
+            if (existingIds.has(w.id)) return;
+            merged.push(w); added++;
+            existingIds.add(w.id);
+        });
+        if (added === 0) {
+            await showModal({ type: 'alert', title: 'No New Wishes', message: 'All wishes in the file(s) are already in your log. Nothing new to import.', confirmText: 'OK' });
+            return;
+        }
+        const confirmed = await showModal({
+            type: 'confirm',
+            title: 'Import Preview',
+            message: `Found <b>${added}</b> new wish${added === 1 ? '' : 'es'} across <b>${bannerIdsSeen.size}</b> banner${bannerIdsSeen.size === 1 ? '' : 's'}${detectedUid ? ` (UID ${detectedUid})` : ''}.<br><br>Your account currently has <b>${existingWishes.length}</b> wish${existingWishes.length === 1 ? '' : 'es'}. After importing, you'll have <b>${merged.length}</b> total.<br><br>Add these ${added} new wish${added === 1 ? '' : 'es'}?`,
+            confirmText: `Add ${added} Wish${added === 1 ? '' : 'es'}`,
+        });
+        if (!confirmed) {
+            renderGachaStats();
+            return;
+        }
+        merged.sort((a, b) => new Date(b.time) - new Date(a.time));
+        state.gachaLog = { wishes: merged, lastImport: new Date().toISOString() };
+        saveState();
+        recomputePityState();
+        renderGachaStats();
+        renderCalendar();
+        renderStatusBar();
+        await showModal({ type: 'alert', title: 'Import Complete', message: `Added ${added} new wish${added === 1 ? '' : 'es'}. You now have ${merged.length} total.`, confirmText: 'OK' });
+    } catch (err) {
+        await showModal({ type: 'alert', title: 'Import Failed', message: err.message || String(err), confirmText: 'OK' });
+        renderGachaStats();
+    }
+}
+// Export NTE wishes in a clean JSON format for re-import.
+async function exportNteWishes() {
+    if (!state.gachaLog || !state.gachaLog.wishes || state.gachaLog.wishes.length === 0) {
+        await showModal({ type: 'alert', title: 'No Wishes', message: 'You have no NTE wish history to export.', confirmText: 'OK' });
+        return;
+    }
+    try {
+        const d = new Date();
+        const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const accSlug = getActiveAccountName().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'account';
+        const exportData = {
+            format: 'constellation-nte-wishes-v1',
+            exportedAt: d.toISOString(),
+            game: 'Neverness to Everness',
+            account: getActiveAccountName(),
+            uid: '',
+            bannerNames: NTE_BANNERS.reduce((m, b) => { m[b.id] = b.name; return m; }, {}),
+            wishes: state.gachaLog.wishes,
+        };
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `constellation-nte-wishes-${accSlug}-${stamp}.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (err) {
+        await showModal({ type: 'alert', title: 'Export Failed', message: err.message, confirmText: 'OK' });
+    }
 }
 async function openGachaImport() {
     const url = await showModal({type:'prompt',title:'Import Gacha Log',message:'Please paste your full gacha log URL.',placeholder:'https://...'});
@@ -1314,6 +1987,11 @@ function parsePaimonMoe(data) {
 // Detect format and parse any supported wish-data JSON file.
 function parseWishFile(text) {
     const data = JSON.parse(text);
+    // NTE export format — reject with a helpful message in a Genshin context. The NTE
+    // import path (importNteWishFile) uses parseNteExport directly, not this function.
+    if (data && data.format === 'nte-history-export') {
+        throw new Error('This is an NTE (Neverness to Everness) export file. Switch to the NTE game using the dropdown in the header, then use the "Import NTE Wishes File" button in the NTE Gacha view.');
+    }
     // paimon.moe format: has wish-counter-* keys
     if (data['wish-counter-character-event'] || data['wish-counter-standard']) {
         return { format: 'paimon.moe', wishes: parsePaimonMoe(data), uid: data['wish-uid'] || '' };
@@ -1547,9 +2225,13 @@ async function exportWishes() {
     }
 }
 
-// ---------- Primos ----------
+// ---------- Primos / Pixels ----------
+// Genshin shows Primogems (with Welkin Moon + other-daily income rows). NTE shows Character
+// Pixels (simpler: just ~60/day from daily bounties). The 4 add/spend buttons are shared
+// (game-aware) so we don't duplicate handler logic.
 function renderPrimos() {
     const el = $('view-primos'); if (!el) return;
+    if (isActiveGameNte()) { renderNtePrimos(el); return; }
     const days = 30;
     const dailyEst = days*60 + days*(state.otherDailyPrimos||0);
     const welkinEst = state.welkinActive ? days*90 : 0;
@@ -1592,37 +2274,105 @@ function renderPrimos() {
     $('welkin-toggle').addEventListener('change', e => { state.welkinActive = e.target.checked; saveState(); renderPrimos(); });
     $('other-daily-input').addEventListener('change', e => { const v=parseInt(e.target.value,10); state.otherDailyPrimos = isNaN(v)||v<0?0:v; saveState(); renderPrimos(); });
 }
+// NTE Character Pixels view — mirrors Genshin's primos view but with a simpler income table
+// (NTE gives ~60 pixels/day from daily bounties; no Welkin Moon, no other-daily row).
+// Uses the same button IDs as Genshin's renderPrimos so the shared game-aware handlers
+// (openAddPrimos / openSetGoal / openSpendWishes / openSubtractPrimos) work for both games.
+function renderNtePrimos(el) {
+    const days = 30;
+    const dailyEst = days*60; // NTE daily bounties give ~60 pixels/day
+    const current = state.pixelCount||0;
+    const total = current + dailyEst;
+    const goal = state.pixelGoal||0;
+    const remaining = total - goal;
+    const pulls = Math.floor(total/PRIMO_PER_PULL);
+    const goalPulls = Math.floor(goal/PRIMO_PER_PULL);
+    el.innerHTML = `
+        <div class="single-column-view" style="max-width:560px;margin:auto;">
+            <h2>Character Pixels</h2>
+            <div class="stats">
+                <div class="stat-item"><h3>DAILY STREAK</h3><p id="daily-streak">${state.dailyStreak||0}</p></div>
+                <div class="stat-item"><h3>PIXELS</h3><p><span id="primo-count">${current.toLocaleString()}</span> / <span id="primo-goal">${goal.toLocaleString()}</span></p></div>
+            </div>
+            <div class="controls-group">
+                <button id="add-primo-btn" class="btn btn-primary">Add Pixels</button>
+                <button id="set-goal-btn" class="btn btn-primary">Set Pixel Goal</button>
+                <button id="spend-wishes-btn" class="btn btn-secondary">Spend Wishes</button>
+                <button id="subtract-primos-btn" class="btn btn-secondary">Subtract Pixels</button>
+            </div>
+            <div class="income-section">
+                <h3>Expected Income</h3>
+                <div class="income-table">
+                    <div class="income-row"><span class="income-label">Current saved</span><span class="income-val">${current.toLocaleString()}</span></div>
+                    <div class="income-row"><span class="income-label">Daily bounties (30d)</span><span class="income-val pos">+ ${dailyEst.toLocaleString()}</span></div>
+                    <div class="income-row total"><span>Total projected (\u2248 ${pulls} pulls)</span><span class="income-val">${total.toLocaleString()}</span></div>
+                    <div class="income-row"><span class="income-label">Goal</span><span class="income-val">${goal.toLocaleString()} (\u2248 ${goalPulls} pulls)</span></div>
+                    <div class="income-row total"><span>${remaining>=0?'Surplus':'Remaining to goal'}</span><span class="income-val ${remaining>=0?'pos':'neg'}">${remaining>=0?'+':''}${remaining.toLocaleString()}</span></div>
+                </div>
+            </div>
+        </div>`;
+    $('add-primo-btn').addEventListener('click', openAddPrimos);
+    $('set-goal-btn').addEventListener('click', openSetGoal);
+    $('spend-wishes-btn').addEventListener('click', openSpendWishes);
+    $('subtract-primos-btn').addEventListener('click', openSubtractPrimos);
+}
+// All 4 primogem/pixel handlers are game-aware: NTE updates state.pixelCount/pixelGoal,
+// Genshin updates state.primogemCount/primogemGoal.
 async function openAddPrimos() {
-    const v = await showModal({type:'prompt',title:'Add Primogems',placeholder:'e.g., 300'});
+    const isNte = isActiveGameNte();
+    const v = await showModal({type:'prompt',title: isNte?'Add Pixels':'Add Primogems',placeholder:'e.g., 300'});
     if (v===false) return;
     const n = parseInt(v,10);
-    if (!isNaN(n)) { state.primogemCount = (state.primogemCount||0)+n; saveState(); renderPrimos(); renderStatusBar(); }
+    if (!isNaN(n)) {
+        if (isNte) state.pixelCount = (state.pixelCount||0)+n;
+        else state.primogemCount = (state.primogemCount||0)+n;
+        saveState(); renderPrimos(); renderStatusBar();
+    }
 }
 async function openSetGoal() {
-    const v = await showModal({type:'prompt',title:'Set Goal',placeholder:'e.g., 28800',defaultValue:String(state.primogemGoal)});
+    const isNte = isActiveGameNte();
+    const cur = isNte ? state.pixelGoal : state.primogemGoal;
+    const v = await showModal({type:'prompt',title: isNte?'Set Pixel Goal':'Set Goal',placeholder:'e.g., 28800',defaultValue:String(cur)});
     if (v===false) return;
     const n = parseInt(v,10);
-    if (!isNaN(n)) { state.primogemGoal = n; saveState(); renderPrimos(); }
+    if (!isNaN(n)) {
+        if (isNte) state.pixelGoal = n; else state.primogemGoal = n;
+        saveState(); renderPrimos();
+    }
 }
 async function openSpendWishes() {
+    const isNte = isActiveGameNte();
     const v = await showModal({type:'prompt',title:'Spend Wishes',message:'How many wishes did you spend?',placeholder:'e.g., 10'});
     if (v===false) return;
     const n = parseInt(v,10);
-    if (!isNaN(n) && n>0) { state.primogemCount = Math.max(0, (state.primogemCount||0) - n*PRIMO_PER_PULL); saveState(); renderPrimos(); renderStatusBar(); }
+    if (!isNaN(n) && n>0) {
+        const cost = n*PRIMO_PER_PULL; // 160 per pull for both games
+        if (isNte) state.pixelCount = Math.max(0, (state.pixelCount||0) - cost);
+        else state.primogemCount = Math.max(0, (state.primogemCount||0) - cost);
+        saveState(); renderPrimos(); renderStatusBar();
+    }
 }
 async function openSubtractPrimos() {
-    const v = await showModal({type:'prompt',title:'Subtract Primos',message:'Spend primos on Welkin, BP, etc.',placeholder:'amount'});
+    const isNte = isActiveGameNte();
+    const v = await showModal({type:'prompt',title: isNte?'Subtract Pixels':'Subtract Primos',message: isNte?'Spend pixels on shop items, etc.':'Spend primos on Welkin, BP, etc.',placeholder:'amount'});
     if (v===false) return;
     const n = parseInt(v,10);
-    if (!isNaN(n) && n>0) { state.primogemCount = Math.max(0, (state.primogemCount||0)-n); saveState(); renderPrimos(); renderStatusBar(); }
+    if (!isNaN(n) && n>0) {
+        if (isNte) state.pixelCount = Math.max(0, (state.pixelCount||0)-n);
+        else state.primogemCount = Math.max(0, (state.primogemCount||0)-n);
+        saveState(); renderPrimos(); renderStatusBar();
+    }
 }
 
 // ---------- Map ----------
 function renderMapView() {
-    // Fullscreen embedded interactive map (genshin-impact-map.appsample.com).
-    // The iframe fills the entire viewport when the Map view is active.
+    // Fullscreen embedded interactive map. Genshin uses genshin-impact-map.appsample.com;
+    // NTE uses interactivemap.app/neverness-to-everness/maps/hethereau.
     const el = $('view-map'); if (!el) return;
-    el.innerHTML = `<iframe id="interactive-map-iframe" src="https://genshin-impact-map.appsample.com/?map=teyvat"></iframe>`;
+    const mapUrl = isActiveGameNte()
+        ? 'https://interactivemap.app/neverness-to-everness/maps/hethereau'
+        : 'https://genshin-impact-map.appsample.com/?map=teyvat';
+    el.innerHTML = `<iframe id="interactive-map-iframe" src="${mapUrl}"></iframe>`;
 }
 
 // ---------- Calendar ----------
@@ -1630,26 +2380,34 @@ function renderCalendar() {
     const el = $('view-calendar'); if (!el) return;
     const year = state.calendarDisplayYear;
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const titleText = isActiveGameNte() ? 'Yearly NTE Wish Calendar' : 'Yearly Wish Calendar';
     el.innerHTML = `<div class="single-column-view">
-        <div class="calendar-header"><div class="calendar-controls"><h2>Yearly Wish Calendar</h2></div>
+        <div class="calendar-header"><div class="calendar-controls"><h2>${titleText}</h2></div>
         <div class="year-selector"><button id="prev-year-btn" class="btn btn-secondary">&lt;</button><span id="current-year-display">${year}</span><button id="next-year-btn" class="btn btn-secondary">&gt;</button></div></div>
         <div id="calendar-grid" class="calendar-grid"></div></div>`;
     const nextBtn = $('next-year-btn'); nextBtn.disabled = year >= getAppDate().getFullYear();
     nextBtn.addEventListener('click', () => { if (state.calendarDisplayYear < getAppDate().getFullYear()) { state.calendarDisplayYear++; saveState(); renderCalendar(); } });
     $('prev-year-btn').addEventListener('click', () => { if (state.calendarDisplayYear > 2020) { state.calendarDisplayYear--; saveState(); renderCalendar(); } });
     const grid = $('calendar-grid');
-    if (!state.gachaLog || !state.gachaLog.wishes) { grid.innerHTML = `<p style="text-align:center;grid-column:1/-1;color:var(--secondary-text);">Import gacha log to see calendar.</p>`; return; }
+    if (!state.gachaLog || !state.gachaLog.wishes) { grid.innerHTML = `<p style="text-align:center;grid-column:1/-1;color:var(--secondary-text);">Import ${isActiveGameNte() ? 'NTE ' : ''}gacha log to see calendar.</p>`; return; }
     const wishesForYear = state.gachaLog.wishes.filter(w => new Date(w.time).getFullYear()===year);
     const pullsByDay = {};
-    const fiveStarDays = new Set(); // days that have at least one 5★ pull — shown as a gold dot
+    const fiveStarDays = new Set(); // days with a top-rarity pull — gold dot
     wishesForYear.forEach(w => {
         const dk = w.time.substring(0, 10);
         pullsByDay[dk] = (pullsByDay[dk]||0)+1;
-        // Mark the day if this pull is a 5★ (check rarity DB, fall back to rank_type).
+        // Mark the day if this pull is top-rarity. For Genshin: 5★ (rarity DB or rank_type).
+        // For NTE: S-rank CHARACTER only (rank_type===5 AND item_type==='character') — S-rank
+        // items like Fabricated Dice don't get a gold dot, matching the pity logic.
         const rarity = getItemRarity(w.name) || parseInt(w.rank_type, 10);
-        if (rarity === 5) fiveStarDays.add(dk);
+        if (isActiveGameNte()) {
+            if (rarity === 5 && w.item_type === 'character') fiveStarDays.add(dk);
+        } else {
+            if (rarity === 5) fiveStarDays.add(dk);
+        }
     });
     const todayKey = toLocalISO(getAppDate());
+    const dotTitle = isActiveGameNte() ? 'S-rank character pulled this day' : '5\u2605 pulled this day';
     grid.innerHTML = months.map((name, month) => {
         const firstDay = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month+1, 0).getDate();
@@ -1661,8 +2419,7 @@ function renderCalendar() {
             if (dk===todayKey) hClass += ' today';
             if (pc) hClass += ' has-pulls';
             if (fiveStarDays.has(dk)) hClass += ' has-five-star';
-            // The gold dot is added when the day has a 5★, alongside the pull count.
-            days += `<div class="day-cell ${hClass}" data-date="${dk}"><span>${day}</span>${pc?`<div class="pull-count">${pc}</div>`:''}${fiveStarDays.has(dk)?'<div class="five-star-dot" title="5★ pulled this day"></div>':''}</div>`;
+            days += `<div class="day-cell ${hClass}" data-date="${dk}"><span>${day}</span>${pc?`<div class="pull-count">${pc}</div>`:''}${fiveStarDays.has(dk)?`<div class="five-star-dot" title="${dotTitle}"></div>`:''}</div>`;
         }
         return `<div class="month"><h4>${name}</h4><div class="day-headers">${['S','M','T','W','T','F','S'].map(d=>`<div>${d}</div>`).join('')}</div><div class="days-grid">${days}</div></div>`;
     }).join('');
@@ -1684,10 +2441,12 @@ async function showDailyBreakdown(dateKey) {
 // ---------- Settings ----------
 function renderSettings() {
     const el = $('view-settings'); if (!el) return;
+    // NTE: render the simplified NTE settings (no daily/primos/date-override sections).
+    if (isActiveGameNte()) { renderNteSettings(el); return; }
     const theme = _activeTheme, customAccent = _customAccent || '';
     let chips = '';
-    Object.keys(THEMES).forEach(name => {
-        chips += `<div class="theme-chip ${name===theme?'selected':''}" data-theme="${name}" title="${name}"><span class="theme-chip-swatch" style="background:${THEMES[name].accent}"></span><span class="theme-chip-name">${name}</span></div>`;
+    Object.keys(getActiveThemes()).forEach(name => {
+        chips += `<div class="theme-chip ${name===theme?'selected':''}" data-theme="${name}" title="${name}"><span class="theme-chip-swatch" style="background:${getActiveThemes()[name].accent}"></span><span class="theme-chip-name">${name}</span></div>`;
     });
     // Accounts list
     const idx = getAccountsIndex() || { activeId:'main', list:[{id:'main', name:'Main'}] };
@@ -1711,7 +2470,7 @@ function renderSettings() {
             <div class="controls-group" style="margin-top:12px;"><button id="add-account-btn" class="btn btn-primary">+ Add Account</button></div>
         </div>
         <div class="settings-section"><h3>Theme</h3><div class="theme-grid">${chips}</div>
-            <div class="custom-accent-row"><label for="custom-accent-input">Custom accent:</label><input type="color" id="custom-accent-input" value="${customAccent || THEMES[theme].accent}">${customAccent?'<button class="btn-icon" id="reset-accent-btn" title="Reset to theme accent">Reset</button>':''}</div></div>
+            <div class="custom-accent-row"><label for="custom-accent-input">Custom accent:</label><input type="color" id="custom-accent-input" value="${customAccent || getActiveThemes()[theme].accent}">${customAccent?'<button class="btn-icon" id="reset-accent-btn" title="Reset to theme accent">Reset</button>':''}</div></div>
         <div class="settings-section"><h3>Constellation Layout</h3>
             <p style="text-align:center;color:var(--secondary-text);font-size:0.85em;margin:0 0 12px;">Choose how the 6 nav stars are arranged on the main menu.</p>
             <div class="layout-grid">${CONSTELLATION_LAYOUTS.map(l => `<button class="layout-chip ${l.id===_activeLayout?'selected':''}" data-layout="${l.id}"><span class="layout-chip-name">${l.name}</span></button>`).join('')}</div>
@@ -1721,7 +2480,7 @@ function renderSettings() {
         <div class="settings-section"><h3>Data Backup</h3><div class="data-buttons"><button id="export-data-btn" class="btn btn-primary">Export Data</button><button id="import-data-btn" class="btn btn-secondary">Import Data</button><input type="file" id="import-data-file" accept=".json" style="display:none;"></div></div>
         <div class="settings-section"><h3>Danger Zone</h3><div class="controls-group" style="margin-top:0;"><button id="reset-all-btn" class="btn btn-clear">Clear &amp; Reset This Account</button></div></div>
         <div class="settings-section" style="text-align:center;color:var(--secondary-text);font-size:0.8em;opacity:0.7;">
-            <p>Constellation v20 &middot; timeout-protected import</p>
+            <p>Constellation v45 &middot; NTE tasks + pixels + stamina</p>
             <p style="font-size:0.9em;margin-top:4px;">If the import hangs on "via corsproxy.io" for more than 10 seconds without falling back, you are viewing a CACHED old version. Hard-refresh (Ctrl+Shift+R / Cmd+Shift+R) to load the latest.</p>
         </div>
     </div>`;
@@ -1770,13 +2529,143 @@ function renderSettings() {
     $('import-data-btn').addEventListener('click', () => $('import-data-file').click());
     $('import-data-file').addEventListener('change', importData);
 }
+
+// ---------- NTE settings ----------
+// Settings view for NTE: Accounts, Theme, Constellation Layout (single preset), General
+// Resets (Perform Daily Task Reset — works for NTE daily/weekly tasks + weekly city stamina
+// refresh), Data Backup, and Danger Zone. No primogem reset / no date override (Genshin-only).
+function renderNteSettings(el) {
+    const theme = _activeTheme, customAccent = _customAccent || '';
+    let chips = '';
+    Object.keys(getActiveThemes()).forEach(name => {
+        chips += `<div class="theme-chip ${name===theme?'selected':''}" data-theme="${name}" title="${name}"><span class="theme-chip-swatch" style="background:${getActiveThemes()[name].accent}"></span><span class="theme-chip-name">${name}</span></div>`;
+    });
+    const idx = getAccountsIndex() || { activeId:'main', list:[{id:'main', name:'Main'}] };
+    const activeId = idx.activeId;
+    const accListHtml = idx.list.map(a => {
+        const active = a.id === activeId;
+        return `<div class="account-row ${active?'active':''}" data-acc="${a.id}">
+            <button class="account-name-btn" data-switch="${a.id}" title="Switch to this account">${escHtml(a.name)}${active?' <span class="account-badge">active</span>':''}</button>
+            <span class="account-actions">
+                <button class="btn-icon" data-rename="${a.id}" title="Rename">${pencilSvg()}</button>
+                <button class="btn-icon" data-delete="${a.id}" title="Delete">${trashSvg()}</button>
+            </span>
+        </div>`;
+    }).join('');
+    const layouts = getActiveLayouts();
+    el.innerHTML = `<div class="single-column-view" style="max-width:560px;margin:auto;">
+        <h2>Settings <span style="font-size:0.5em;color:var(--secondary-text);letter-spacing:0.5px;">NTE</span></h2>
+        <div class="settings-section"><h3>Accounts</h3>
+            <p style="text-align:center;color:var(--secondary-text);font-size:0.85em;margin:0 0 12px;">Each NTE account keeps its own gacha log, tasks, pixels, stamina, and city stamina. Accounts are separate from Genshin accounts. Theme is shared across games.</p>
+            <div class="account-list">${accListHtml}</div>
+            <div class="controls-group" style="margin-top:12px;"><button id="add-account-btn" class="btn btn-primary">+ Add Account</button></div>
+        </div>
+        <div class="settings-section"><h3>Theme</h3><div class="theme-grid">${chips}</div>
+            <div class="custom-accent-row"><label for="custom-accent-input">Custom accent:</label><input type="color" id="custom-accent-input" value="${customAccent || getActiveThemes()[theme].accent}">${customAccent?'<button class="btn-icon" id="reset-accent-btn" title="Reset to theme accent">Reset</button>':''}</div></div>
+        <div class="settings-section"><h3>Constellation Layout</h3>
+            <p style="text-align:center;color:var(--secondary-text);font-size:0.85em;margin:0 0 12px;">NTE shows 5 nav stars (Gacha Log, Tasks, Pixels, Calendar, Settings).</p>
+            <div class="layout-grid">${layouts.map(l => `<button class="layout-chip ${l.id===_activeLayout?'selected':''}" data-layout="${l.id}"><span class="layout-chip-name">${l.name}</span></button>`).join('')}</div>
+        </div>
+        <div class="settings-section"><h3>General Resets</h3><div class="controls-group" style="margin-top:0;"><button id="manual-reset-btn" class="btn btn-secondary">Perform Daily Task Reset</button></div></div>
+        <div class="settings-section"><h3>Data Backup</h3><div class="data-buttons"><button id="export-data-btn" class="btn btn-primary">Export Data</button><button id="import-data-btn" class="btn btn-secondary">Import Data</button><input type="file" id="import-data-file" accept=".json" style="display:none;"></div></div>
+        <div class="settings-section"><h3>Danger Zone</h3><div class="controls-group" style="margin-top:0;"><button id="reset-all-btn" class="btn btn-clear">Clear &amp; Reset This Account</button></div></div>
+        <div class="settings-section" style="text-align:center;color:var(--secondary-text);font-size:0.8em;opacity:0.7;">
+            <p>Constellation v45 &middot; NTE tasks + pixels + stamina</p>
+        </div>
+    </div>`;
+    document.querySelectorAll('.theme-chip').forEach(chip => chip.addEventListener('click', () => { const n=chip.dataset.theme; applyTheme(n, _customAccent); saveTheme(n, _customAccent); renderSettings(); }));
+    document.querySelectorAll('.layout-chip').forEach(chip => chip.addEventListener('click', () => { setLayout(chip.dataset.layout); showView('main-menu'); renderSettings(); }));
+    const ai = $('custom-accent-input');
+    if (ai) { ai.addEventListener('input', e => applyTheme(_activeTheme, e.target.value)); ai.addEventListener('change', e => { saveTheme(_activeTheme, e.target.value); renderSettings(); }); }
+    const ra = $('reset-accent-btn'); if (ra) ra.addEventListener('click', () => { _customAccent=null; applyTheme(_activeTheme, null); saveTheme(_activeTheme, null); renderSettings(); });
+    $('manual-reset-btn').addEventListener('click', () => performDailyReset(false));
+    $('add-account-btn').addEventListener('click', async () => {
+        const v = await showModal({type:'prompt',title:'New NTE Account',message:'Name this account:',placeholder:'Account name',defaultValue:'Alt'});
+        if (v === false || !v) return;
+        createAccount(v.trim());
+    });
+    document.querySelectorAll('button[data-switch]').forEach(b => b.addEventListener('click', () => switchAccount(b.dataset.switch)));
+    document.querySelectorAll('button[data-rename]').forEach(b => b.addEventListener('click', async () => {
+        const id = b.dataset.rename;
+        const idx2 = getAccountsIndex();
+        const acc = idx2.list.find(a => a.id === id);
+        const v = await showModal({type:'prompt',title:'Rename Account',defaultValue:acc ? acc.name : '',placeholder:'Account name'});
+        if (v === false || !v) return;
+        renameAccount(id, v.trim());
+        renderSettings();
+    }));
+    document.querySelectorAll('button[data-delete]').forEach(b => b.addEventListener('click', () => deleteAccount(b.dataset.delete)));
+    $('reset-all-btn').addEventListener('click', async () => {
+        const accName = getActiveAccountName();
+        if (await showModal({title:'Confirm Reset',message:`This will delete ALL data for the "${accName}" NTE account (gacha log, pity, tasks, pixels, stamina, city stamina). This cannot be undone. Continue?`,type:'confirm'})) {
+            state = getNteDefaultState();
+            saveState();
+            recomputePityState();
+            renderAll();
+            await showModal({type:'alert',title:'Reset Complete',message:`The "${accName}" account has been reset.`,confirmText:'OK'});
+        }
+    });
+    $('export-data-btn').addEventListener('click', exportData);
+    $('import-data-btn').addEventListener('click', () => $('import-data-file').click());
+    $('import-data-file').addEventListener('change', importData);
+}
+
+// ---------- Game switcher ----------
+// Switches the active game (Genshin <-> NTE). Saves the current state (already
+// auto-saved on each change, but we make sure), updates the active-game flag, reloads
+// state for the new game, re-renders everything, and returns to the main menu.
+function switchGame(gameId) {
+    if (gameId !== 'genshin' && gameId !== 'nte') return;
+    if (gameId === _activeGame) return;
+    // Save the current game's state (defensive — most changes already save).
+    try { saveState(); } catch(e) {}
+    _activeGame = gameId;
+    saveActiveGame(gameId);
+    // Reset transient view + edit-mode state so showView doesn't get confused by stale .active
+    // and the daily/weekly edit toggles don't carry across games (the underlying task lists
+    // differ between Genshin and NTE).
+    _viewAnimating = false;
+    _dailyEditMode = false;
+    _weeklyEditMode = false;
+    document.body.removeAttribute('data-edit-daily');
+    document.body.removeAttribute('data-edit-weekly');
+    document.querySelectorAll('.view.active').forEach(v => v.classList.remove('active'));
+    // Restore the header (in case we were in the Genshin Map fullscreen view).
+    const header = document.querySelector('.header-section');
+    if (header) header.style.display = 'flex';
+    document.body.classList.remove('map-fullscreen');
+    const statusBar = $('status-bar');
+    if (statusBar) statusBar.style.display = 'flex';
+    // Reload everything for the new game.
+    loadLayout();
+    loadTheme(); // reload theme — may fall back to the game's default if the saved theme isn't in this game's set
+    loadState();
+    // Both games share the same daily/weekly reset logic now (NTE has dailyTasks/weeklyTasks
+    // too), so checkForAutomaticResets runs for both. deriveStandardPool is Genshin-only.
+    if (isActiveGameNte()) {
+        try { recomputePityState(); } catch(e) { console.warn('recomputePityState failed', e); }
+        try { checkForAutomaticResets(); } catch(e) { console.warn('checkForAutomaticResets failed', e); }
+    } else {
+        try { deriveStandardPool(); } catch(e) { console.warn('deriveStandardPool failed', e); }
+        try { recomputePityState(); } catch(e) { console.warn('recomputePityState failed', e); }
+        try { checkForAutomaticResets(); } catch(e) { console.warn('checkForAutomaticResets failed', e); }
+    }
+    // Re-render the constellation menu (different number of stars per game).
+    try { renderConstellation(); } catch(e) { console.warn('renderConstellation failed', e); }
+    renderAll();
+    renderAccountPill();
+    showView('main-menu');
+    try { animateConstellationEntry(); } catch(e) {}
+}
+
 async function exportData() {
     try {
         const blob = new Blob([JSON.stringify(state, null, 2)], { type:'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         const d = new Date();
-        a.href = url; a.download = `constellation-backup-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.json`;
+        const gameSlug = isActiveGameNte() ? 'nte' : 'genshin';
+        a.href = url; a.download = `constellation-${gameSlug}-backup-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.json`;
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch(e) { await showModal({type:'alert',title:'Export Failed',message:e.message,confirmText:'OK'}); }
 }
@@ -1786,7 +2675,47 @@ async function importData(e) {
     try {
         const text = await file.text();
         const parsed = JSON.parse(text);
-        // Check if it's a full Constellation state backup.
+        // NTE branch: handle NTE state backups + NTE export files.
+        if (isActiveGameNte()) {
+            // NTE state backup detection — require the NTE-specific keys.
+            const nteRequired = ['gachaLog','pityState','userItemOverrides'];
+            if (nteRequired.every(k => Object.prototype.hasOwnProperty.call(parsed, k))) {
+                if (!await showModal({title:'Import Data',message:'This will replace all current data for this NTE account. Continue?',type:'confirm'})) return;
+                state = mergeNteDefaults(parsed); state.stateVersion = NTE_STATE_VERSION; saveState();
+                recomputePityState(); renderAll();
+                await showModal({type:'alert',title:'Import Complete',message:'Your NTE data has been restored.',confirmText:'OK'});
+                return;
+            }
+            // Try parsing as an NTE export file (nte-history-export format).
+            try {
+                const nteParsed = parseNteExport(parsed);
+                const ok = await showModal({
+                    title: 'Import NTE Wishes',
+                    message: `Found <b>${nteParsed.wishes.length}</b> NTE wishes in this file.${nteParsed.wishes.length > 0 ? '<br><br>This will merge with your existing NTE wish history (duplicates are skipped by record uid).' : ''}`,
+                    type: 'confirm',
+                    confirmText: 'Import',
+                });
+                if (!ok) return;
+                let allWishes = (state.gachaLog && state.gachaLog.wishes) ? state.gachaLog.wishes.slice() : [];
+                const existingIds = new Set(allWishes.map(w => w.id));
+                let added = 0;
+                nteParsed.wishes.forEach(w => {
+                    if (existingIds.has(w.id)) return;
+                    allWishes.push(w); added++;
+                    existingIds.add(w.id);
+                });
+                allWishes.sort((a, b) => new Date(b.time) - new Date(a.time));
+                state.gachaLog = { wishes: allWishes, lastImport: new Date().toISOString() };
+                saveState();
+                recomputePityState();
+                renderAll();
+                await showModal({ type: 'alert', title: 'Import Complete', message: `Imported ${added} new wish${added === 1 ? '' : 'es'} (${allWishes.length} total).`, confirmText: 'OK' });
+            } catch (nteErr) {
+                await showModal({type:'alert',title:'Invalid File',message:'This file is neither an NTE state backup nor an NTE export file (nte-history-export).',confirmText:'OK'});
+            }
+            return;
+        }
+        // Genshin branch: check if it's a full Constellation state backup.
         const required = ['dailyTasks','weeklyTasks','primogemCount','gachaLog'];
         if (required.every(k => Object.prototype.hasOwnProperty.call(parsed, k))) {
             if (!await showModal({title:'Import Data',message:'This will replace all current data for this account. Continue?',type:'confirm'})) return;
@@ -1839,8 +2768,40 @@ async function importData(e) {
 
 // ---------- Status bar ----------
 function renderStatusBar() {
-    const r=$('status-resin'), s=$('status-streak'), p=$('status-pity');
-    if (!r||!s||!p) return;
+    const bar = $('status-bar'); if (!bar) return;
+    // NTE: STAMINA X/240 | CITY X/700 | LIMITED S X/90. Compact 3-item bar that surfaces
+    // the live stamina (resin equivalent), the weekly city stamina, and the limited banner
+    // S-rank pity — the three counters NTE players actually want at-a-glance.
+    if (isActiveGameNte()) {
+        const stamina = (typeof getCurrentResin === 'function') ? getCurrentResin() : 0;
+        const staminaMax = (state.resin && state.resin.max) || 240;
+        const city = (typeof getNteCityStamina === 'function') ? getNteCityStamina() : 0;
+        const cityMax = (state.cityStamina && state.cityStamina.max) || 700;
+        const ps = state.pityState || {};
+        const limited = ps['Lottery_LimitedCharacter'] || { current5: 0 };
+        bar.innerHTML = `
+            <span class="status-item"><span class="status-label">STAMINA</span> <span id="status-stamina">${stamina}</span><span class="status-sub">/${staminaMax}</span></span>
+            <span class="status-divider"></span>
+            <span class="status-item"><span class="status-label">CITY</span> <span id="status-city">${city}</span><span class="status-sub">/${cityMax}</span></span>
+            <span class="status-divider"></span>
+            <span class="status-item"><span class="status-label">LIMITED S</span> <span id="status-pity">${limited.current5 || 0}</span><span class="status-sub">/90</span></span>`;
+        return;
+    }
+    // Genshin: original status bar. Rebuild on first render (or after NTE cleared it),
+    // then update the cached element refs on subsequent renders.
+    const r = $('status-resin'), s = $('status-streak'), p = $('status-pity');
+    if (!r || !s || !p) {
+        const resinVal = (typeof getCurrentResin === 'function') ? getCurrentResin() : 0;
+        const streakVal = state.dailyStreak || 0;
+        const ps = state.pityState && state.pityState['301'];
+        const pityVal = ps ? (ps.current5 || 0) : 0;
+        bar.innerHTML = `<span class="status-item"><span class="status-label">RESIN</span> <span id="status-resin">${resinVal}</span><span class="status-sub">/200</span></span>
+            <span class="status-divider"></span>
+            <span class="status-item"><span class="status-label">STREAK</span> <span id="status-streak">${streakVal}</span></span>
+            <span class="status-divider"></span>
+            <span class="status-item"><span class="status-label">5\u2605 PITY</span> <span id="status-pity">${pityVal}</span><span class="status-sub">/90</span></span>`;
+        return;
+    }
     r.textContent = getCurrentResin();
     s.textContent = state.dailyStreak || 0;
     const ps = state.pityState && state.pityState['301'];
@@ -1906,6 +2867,12 @@ function bindGlobalEvents() {
     // Note: constellation star click handlers are bound in renderConstellation() (per-layout),
     // not here, because stars are injected dynamically based on the selected layout preset.
     $('btn-back-main').addEventListener('click', () => showView('main-menu'));
+    // Game switcher dropdown — switches between Genshin Impact and NTE.
+    const gs = $('game-switcher');
+    if (gs) {
+        gs.value = _activeGame;
+        gs.addEventListener('change', (e) => switchGame(e.target.value));
+    }
     const tick = () => { $('live-clock').textContent = new Date().toLocaleTimeString('en-US', { hour12:true, hour:'2-digit', minute:'2-digit' }); };
     tick(); setInterval(tick, 1000);
 }
@@ -1924,6 +2891,8 @@ async function init() {
     });
 
     $('custom-modal').innerHTML = `<div class="modal-content"><h3 id="modal-title"></h3><p id="modal-message"></p><div id="modal-custom-content"></div><input type="text" id="modal-input" class="modal-input" style="display:none;"><div class="modal-buttons"><button id="modal-cancel-btn" class="btn btn-secondary">Cancel</button><button id="modal-confirm-btn" class="btn btn-primary">Confirm</button></div></div>`;
+    // Load the active game FIRST — loadState() and the account index are game-prefixed.
+    loadActiveGame();
     loadTheme();
 
     initAccountPill();
@@ -1935,8 +2904,12 @@ async function init() {
     // background and re-renders gacha/pity/status once rarities are available.
     loadItemDB();
     // Wrap data-dependent steps so a throw in any one never blocks the UI rendering.
-    try { deriveStandardPool(); } catch(e) { console.warn('deriveStandardPool failed', e); }
+    if (!isActiveGameNte()) {
+        try { deriveStandardPool(); } catch(e) { console.warn('deriveStandardPool failed', e); }
+    }
     try { recomputePityState(); } catch(e) { console.warn('recomputePityState failed', e); }
+    // Both games share the same daily/weekly reset logic now (NTE has dailyTasks/weeklyTasks
+    // + weekly city-stamina refresh), so checkForAutomaticResets runs for both games.
     try { checkForAutomaticResets(); } catch(e) { console.warn('checkForAutomaticResets failed', e); }
     // Start the clock + bind nav clicks FIRST so the header is alive immediately.
     try { startResinTicker(); } catch(e) { console.warn('startResinTicker failed', e); }

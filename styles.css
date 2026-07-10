@@ -74,6 +74,7 @@ body[data-view="main-menu"] {
     letter-spacing: 0.5px;
     font-family: 'ConstellationTitle', sans-serif;
 }
+.header-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
 .header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 #live-clock {
     font-size: 1.3em;
@@ -84,6 +85,34 @@ body[data-view="main-menu"] {
     white-space: nowrap;
     flex-shrink: 0;
 }
+/* Game switcher dropdown (Genshin Impact / NTE) — styled to match the account pill. */
+.game-switcher {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.78em;
+    letter-spacing: 0.4px;
+    font-family: var(--font-stack);
+    background: var(--card-color);
+    color: var(--primary-text);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+    white-space: nowrap;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    /* Custom dropdown chevron (CSS-only, no extra element) */
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238b929b'><path d='M7,10L12,15L17,10H7Z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    background-size: 14px;
+    padding-right: 26px;
+}
+.game-switcher:hover { border-color: var(--accent); color: var(--accent); }
+.game-switcher:focus { outline: none; border-color: var(--accent); }
+.game-switcher option { background: var(--card-color); color: var(--primary-text); }
 
 /* ===== Main / views ===== */
 main {
@@ -93,8 +122,9 @@ main {
     justify-content: center;
     align-items: flex-start;
     position: relative;
-    overflow-y: auto;
-    overflow-x: hidden;
+    /* overflow: visible (not hidden) so constellation star labels positioned near the
+       menu edges (x:90%, y:90%) aren't clipped. Vertical scrolling is handled by body. */
+    overflow: visible;
     padding: 10px 0 20px 0;
 }
 .view {
@@ -119,18 +149,26 @@ main {
 #main-menu {
     align-self: center;
     position: relative;
-    /* generous size; stars positioned 16%–84% so nothing clips at edges */
-    width: min(88vmin, 560px);
+    /* The menu box holds stars positioned 10%–90%. Stars have labels that extend ~22px
+       BELOW them, so we need overflow:visible (set below) + generous margin so edge-star
+       labels (e.g. a star at y:90%) don't get clipped at the box boundary.
+       Expanded size: up to 720px wide (was 560), capped by both width and height so it
+       always fits the viewport. The larger box gives the stars more room to breathe and
+       keeps labels well clear of the edges. */
+    width: min(94vmin, 720px, calc(100vh - 240px));
     aspect-ratio: 1 / 1;
-    margin: 24px auto;
+    margin: 20px auto 30px auto;
+    /* Never clip star labels — they extend outside the box for edge-positioned stars. */
+    overflow: visible;
 }
-#main-menu.active { display: block; }
+#main-menu.active { display: block; clip-path: none !important; }
 
 .constellation-sky {
     position: absolute;
     inset: 0;
     pointer-events: none;
     z-index: 0;
+    overflow: visible;
 }
 .constellation-svg {
     position: absolute;
@@ -313,7 +351,10 @@ main {
     border: none;
     padding: 0;
     cursor: pointer;
-    z-index: 2;
+    /* Raised above the status bar (z-index 999) so edge-star labels (y:90%) are never
+       hidden behind it. Stars are positioned within the menu box and rarely overlap the
+       status bar; when they do, the star + label stay visible on top. */
+    z-index: 1000;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -394,10 +435,11 @@ main {
 /* label under the star */
 .star-label {
     position: absolute;
-    bottom: -22px;
+    bottom: -24px;
     left: 50%;
     transform: translateX(-50%);
     font-size: 0.78em;
+    line-height: 1.4;
     color: var(--secondary-text);
     letter-spacing: 1px;
     text-transform: uppercase;
@@ -405,6 +447,13 @@ main {
     opacity: 0;
     transition: opacity 0.25s ease, color 0.25s ease;
     pointer-events: none;
+    /* Explicit overflow + padding so the text is never clipped at the element boundary
+       (the bottom half of letters was getting cut off despite empty space below). */
+    overflow: visible;
+    padding: 2px 4px;
+    /* Text shadow so the label stays readable if it overlaps the status bar or any
+       background — it's now in the foreground (z-index 1000 via .const-star). */
+    text-shadow: 0 1px 4px var(--bg-color), 0 0 6px var(--bg-color);
 }
 .const-star:hover .star-label,
 .const-star.active-nav .star-label { opacity: 1; }
@@ -888,7 +937,13 @@ body[data-edit-weekly="true"] #weekly-add-row { display: flex; }
 /* ===== Status bar ===== */
 .status-bar {
     position: fixed; bottom: 0; left: 0; right: 0; height: var(--status-h);
-    background: var(--card-color); border-top: 1px solid var(--border-color);
+    /* Semi-transparent background so constellation star labels (z-index 1000, above this)
+       remain visible if they overlap the status bar area on short viewports. The rgba
+       uses the card-color (#1d2024 = rgb(29,32,36)) at 82% opacity. */
+    background: rgba(29, 32, 36, 0.82);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-top: 1px solid var(--border-color);
     display: flex; align-items: center; justify-content: center; gap: 18px;
     z-index: 999; font-size: 0.8em; letter-spacing: 1px; padding: 0 16px;
 }
@@ -902,18 +957,40 @@ body[data-edit-weekly="true"] #weekly-add-row { display: flex; }
 @media (max-width: 600px) {
     body { padding: 12px; padding-bottom: calc(var(--status-h) + 16px); }
     .header-section h1 { font-size: 1.6em; }
+    .header-section { gap: 8px; }
+    .header-left { gap: 8px; }
+    .header-right { gap: 8px; }
     #live-clock { font-size: 1.05em; }
-    #main-menu { width: min(94vmin, 420px); margin: 12px auto; }
-    .const-star { width: 64px; height: 64px; }
-    .star-node { width: 44px; height: 44px; }
-    .star-node svg { width: 22px; height: 22px; }
-    .star-halo { width: 58px; height: 58px; }
-    .star-label { font-size: 0.7em; bottom: -18px; }
+    .game-switcher { font-size: 0.7em; padding: 3px 24px 3px 8px; }
+    /* Constellation menu: smaller box + smaller stars so all 6 fit on a narrow screen.
+       Extra top/bottom margin so edge-star labels (y:10% / y:90%) aren't clipped. */
+    #main-menu { width: min(96vmin, 460px, calc(100vh - 220px)); margin: 30px auto; }
+    .const-star { width: 60px; height: 60px; gap: 2px; }
+    .star-node { width: 40px; height: 40px; }
+    .star-node svg { width: 20px; height: 20px; }
+    .star-halo { width: 52px; height: 52px; }
+    .star-label { font-size: 0.62em; bottom: -18px; letter-spacing: 0.5px; opacity: 0.85; line-height: 1.4; padding: 2px 3px; }
+    /* On touch devices there's no hover, so labels must always be visible. */
     .layout-column, .single-column-view { padding: 16px; }
     .gacha-banner-card { min-width: 100%; max-width: 100%; }
     .status-bar { gap: 10px; font-size: 0.72em; padding: 0 8px; }
     .gacha-details-grid { font-size: 0.78em; }
     .cat-row, .nation-completion { grid-template-columns: 60px 1fr 36px 72px; gap: 6px; font-size: 0.78em; }
+}
+/* Very small phones (<= 380px) — shrink the constellation further so nothing clips. */
+@media (max-width: 380px) {
+    body { padding: 8px; }
+    .header-section h1 { font-size: 1.4em; }
+    #live-clock { font-size: 0.9em; }
+    .account-pill { font-size: 0.8em; }
+    .game-switcher { font-size: 0.62em; padding: 2px 22px 2px 6px; max-width: 50vw; }
+    #main-menu { width: min(96vmin, calc(100vh - 220px)); margin: 30px auto; }
+    .const-star { width: 54px; height: 54px; }
+    .star-node { width: 36px; height: 36px; }
+    .star-node svg { width: 18px; height: 18px; }
+    .star-halo { width: 46px; height: 46px; }
+    .star-label { font-size: 0.55em; bottom: -16px; opacity: 0.85; line-height: 1.4; padding: 2px 3px; }
+    .status-bar { gap: 8px; font-size: 0.65em; }
 }
 
 /* ===== Scrollbar ===== */
