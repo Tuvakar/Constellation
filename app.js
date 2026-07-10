@@ -95,9 +95,14 @@ const STAR_ICONS = {
     'view-settings': '<path d="M19.43,12.98C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.98L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.98M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5Z"/>',
 };
 const STAR_LABELS = {
-    'view-primos':'Primogems', 'view-tasks':'Tasks', 'view-gacha':'Gacha Log',
+    'view-tasks':'Tasks', 'view-gacha':'Gacha Log',
     'view-calendar':'Calendar', 'view-map':'Map', 'view-settings':'Settings',
 };
+// Returns the label for a star view — 'view-primos' shows 'Annulith' for NTE, 'Primogems' for Genshin.
+function getStarLabel(view) {
+    if (view === 'view-primos') return isActiveGameNte() ? 'Annulith' : 'Primogems';
+    return STAR_LABELS[view] || '';
+}
 // Genshin constellation layouts — each preset symbolizes a Genshin element via the
 // arrangement of its 6 nav stars (Primogems, Tasks, Gacha Log, Calendar, Map, Settings).
 const CONSTELLATION_LAYOUTS = [
@@ -273,7 +278,7 @@ function renderConstellation() {
         btn.style.setProperty('--y', pos.y + '%');
         btn.dataset.view = view;
         btn.id = 'star-' + view.replace('view-','');
-        btn.innerHTML = `<span class="star-halo"></span><span class="star-node"><svg viewBox="0 0 24 24">${STAR_ICONS[view]||''}</svg></span><span class="star-label">${STAR_LABELS[view]||''}</span>`;
+        btn.innerHTML = `<span class="star-halo"></span><span class="star-node"><svg viewBox="0 0 24 24">${STAR_ICONS[view]||''}</svg></span><span class="star-label">${getStarLabel(view)}</span>`;
         btn.addEventListener('click', () => showView(view));
         // Hover: highlight only the lines connected to this star (dim the rest).
         btn.addEventListener('mouseenter', () => {
@@ -397,7 +402,7 @@ function getNteDefaultState() {
         dailyTasks: [
             { name:'Daily bounties', completed:false, streak:0 },
             { name:'Operation dispatch', completed:false, streak:0 },
-            { name:'Use all stamina', completed:false, streak:0 },
+            { name:'Use all pixels', completed:false, streak:0 },
             { name:'Complete event (if any)', completed:false, streak:0, isEvent:true },
         ],
         weeklyTasks: [
@@ -982,7 +987,7 @@ async function checkUnknownItems() {
 // Both share the same state.resin shape, so we branch on the active game for the regen rate and cap.
 function resinRegenRateMin() { return isActiveGameNte() ? 6 : 8; }
 function resinDefaultMax()   { return isActiveGameNte() ? 240 : 200; }
-function resinLabel()        { return isActiveGameNte() ? 'Stamina' : 'Resin'; }
+function resinLabel()        { return isActiveGameNte() ? 'Pixels' : 'Resin'; }
 
 function getCurrentResin() {
     const r = state.resin; if (!r || !r.lastSetAt) return r ? r.current : 0;
@@ -1236,8 +1241,8 @@ async function handleEventTaskClick(type, index) {
     const task = state[type==='daily'?'dailyTasks':'weeklyTasks'][index];
     if (!task || task.completed) return;
     const isNte = isActiveGameNte();
-    const title = isNte ? 'Event Pixels' : 'Event Primogems';
-    const msg = isNte ? 'How many pixels did you earn?' : 'How many Primogems did you earn?';
+    const title = isNte ? 'Event Annulith' : 'Event Primogems';
+    const msg = isNte ? 'How many Annulith did you earn?' : 'How many Primogems did you earn?';
     const v = await showModal({type:'prompt',title,message:msg,placeholder:'e.g., 420'});
     if (v===false) return;
     const n = parseInt(v,10);
@@ -2289,16 +2294,16 @@ function renderNtePrimos(el) {
     const goalPulls = Math.floor(goal/PRIMO_PER_PULL);
     el.innerHTML = `
         <div class="single-column-view" style="max-width:560px;margin:auto;">
-            <h2>Character Pixels</h2>
+            <h2>Annulith</h2>
             <div class="stats">
                 <div class="stat-item"><h3>DAILY STREAK</h3><p id="daily-streak">${state.dailyStreak||0}</p></div>
-                <div class="stat-item"><h3>PIXELS</h3><p><span id="primo-count">${current.toLocaleString()}</span> / <span id="primo-goal">${goal.toLocaleString()}</span></p></div>
+                <div class="stat-item"><h3>ANNULITH</h3><p><span id="primo-count">${current.toLocaleString()}</span> / <span id="primo-goal">${goal.toLocaleString()}</span></p></div>
             </div>
             <div class="controls-group">
-                <button id="add-primo-btn" class="btn btn-primary">Add Pixels</button>
-                <button id="set-goal-btn" class="btn btn-primary">Set Pixel Goal</button>
+                <button id="add-primo-btn" class="btn btn-primary">Add Annulith</button>
+                <button id="set-goal-btn" class="btn btn-primary">Set Annulith Goal</button>
                 <button id="spend-wishes-btn" class="btn btn-secondary">Spend Wishes</button>
-                <button id="subtract-primos-btn" class="btn btn-secondary">Subtract Pixels</button>
+                <button id="subtract-primos-btn" class="btn btn-secondary">Subtract Annulith</button>
             </div>
             <div class="income-section">
                 <h3>Expected Income</h3>
@@ -2320,7 +2325,7 @@ function renderNtePrimos(el) {
 // Genshin updates state.primogemCount/primogemGoal.
 async function openAddPrimos() {
     const isNte = isActiveGameNte();
-    const v = await showModal({type:'prompt',title: isNte?'Add Pixels':'Add Primogems',placeholder:'e.g., 300'});
+    const v = await showModal({type:'prompt',title: isNte?'Add Annulith':'Add Primogems',placeholder:'e.g., 300'});
     if (v===false) return;
     const n = parseInt(v,10);
     if (!isNaN(n)) {
@@ -2354,7 +2359,7 @@ async function openSpendWishes() {
 }
 async function openSubtractPrimos() {
     const isNte = isActiveGameNte();
-    const v = await showModal({type:'prompt',title: isNte?'Subtract Pixels':'Subtract Primos',message: isNte?'Spend pixels on shop items, etc.':'Spend primos on Welkin, BP, etc.',placeholder:'amount'});
+    const v = await showModal({type:'prompt',title: isNte?'Subtract Annulith':'Subtract Primos',message: isNte?'Spend Annulith on shop items, etc.':'Spend primos on Welkin, BP, etc.',placeholder:'amount'});
     if (v===false) return;
     const n = parseInt(v,10);
     if (!isNaN(n) && n>0) {
@@ -2479,9 +2484,21 @@ function renderSettings() {
         <div class="settings-section"><h3>Date Override</h3><p id="custom-date-display" style="text-align:center;color:var(--secondary-text);margin-bottom:10px;">${dateDisplay}</p><div class="controls-group" style="margin-top:0;"><button id="set-date-btn" class="btn btn-secondary">Set Custom Date</button><button id="sync-date-btn" class="btn btn-secondary" style="display:${state.customDate?'block':'none'};">Sync to Today</button></div></div>
         <div class="settings-section"><h3>Data Backup</h3><div class="data-buttons"><button id="export-data-btn" class="btn btn-primary">Export Data</button><button id="import-data-btn" class="btn btn-secondary">Import Data</button><input type="file" id="import-data-file" accept=".json" style="display:none;"></div></div>
         <div class="settings-section"><h3>Danger Zone</h3><div class="controls-group" style="margin-top:0;"><button id="reset-all-btn" class="btn btn-clear">Clear &amp; Reset This Account</button></div></div>
+        <div class="settings-section"><h3>Credits</h3><div style="font-size:0.82em;line-height:1.7;color:var(--secondary-text);">
+            <p style="margin:0 0 8px;">Constellation is a fan-made tracker. All game assets, names, and trademarks belong to their respective owners.</p>
+            <p style="margin:0 0 6px;"><b>Genshin Impact</b> &mdash; &copy;HoYoverse</p>
+            <p style="margin:0 0 6px;"><b>Neverness to Everness</b> &mdash; &copy;Hotta Studio / Perfect World</p>
+            <p style="margin:8px 0 4px;"><b>Tools &amp; resources used:</b></p>
+            <ul style="margin:0;padding-left:18px;">
+                <li><a href="https://github.com/Golumpa/nte-exporter" target="_blank" rel="noopener" style="color:var(--accent);">nte-exporter</a> by Golumpa &mdash; NTE wish history packet capture</li>
+                <li><a href="https://github.com/MadeBaruna/paimon-moe" target="_blank" rel="noopener" style="color:var(--accent);">paimon.moe</a> by MadeBaruna &mdash; rarity database &amp; wish format reference</li>
+                <li><a href="https://github.com/theBowja/genshin-db" target="_blank" rel="noopener" style="color:var(--accent);">genshin-db</a> by theBowja &mdash; character &amp; weapon data</li>
+                <li><a href="https://genshin-impact-map.appsample.com" target="_blank" rel="noopener" style="color:var(--accent);">Genshin Impact Map</a> by appsample &mdash; interactive Teyvat map</li>
+                <li><a href="https://interactivemap.app/neverness-to-everness/maps/hethereau" target="_blank" rel="noopener" style="color:var(--accent);">NTE Interactive Map</a> &mdash; Hethereau map</li>
+            </ul>
+        </div></div>
         <div class="settings-section" style="text-align:center;color:var(--secondary-text);font-size:0.8em;opacity:0.7;">
-            <p>Constellation v45 &middot; NTE tasks + pixels + stamina</p>
-            <p style="font-size:0.9em;margin-top:4px;">If the import hangs on "via corsproxy.io" for more than 10 seconds without falling back, you are viewing a CACHED old version. Hard-refresh (Ctrl+Shift+R / Cmd+Shift+R) to load the latest.</p>
+            <p>Constellation v1.0</p>
         </div>
     </div>`;
     document.querySelectorAll('.theme-chip').forEach(chip => chip.addEventListener('click', () => { const n=chip.dataset.theme; applyTheme(n, _customAccent); saveTheme(n, _customAccent); renderSettings(); }));
@@ -2569,8 +2586,21 @@ function renderNteSettings(el) {
         <div class="settings-section"><h3>General Resets</h3><div class="controls-group" style="margin-top:0;"><button id="manual-reset-btn" class="btn btn-secondary">Perform Daily Task Reset</button></div></div>
         <div class="settings-section"><h3>Data Backup</h3><div class="data-buttons"><button id="export-data-btn" class="btn btn-primary">Export Data</button><button id="import-data-btn" class="btn btn-secondary">Import Data</button><input type="file" id="import-data-file" accept=".json" style="display:none;"></div></div>
         <div class="settings-section"><h3>Danger Zone</h3><div class="controls-group" style="margin-top:0;"><button id="reset-all-btn" class="btn btn-clear">Clear &amp; Reset This Account</button></div></div>
+        <div class="settings-section"><h3>Credits</h3><div style="font-size:0.82em;line-height:1.7;color:var(--secondary-text);">
+            <p style="margin:0 0 8px;">Constellation is a fan-made tracker. All game assets, names, and trademarks belong to their respective owners.</p>
+            <p style="margin:0 0 6px;"><b>Genshin Impact</b> &mdash; &copy;HoYoverse</p>
+            <p style="margin:0 0 6px;"><b>Neverness to Everness</b> &mdash; &copy;Hotta Studio / Perfect World</p>
+            <p style="margin:8px 0 4px;"><b>Tools &amp; resources used:</b></p>
+            <ul style="margin:0;padding-left:18px;">
+                <li><a href="https://github.com/Golumpa/nte-exporter" target="_blank" rel="noopener" style="color:var(--accent);">nte-exporter</a> by Golumpa &mdash; NTE wish history packet capture</li>
+                <li><a href="https://github.com/MadeBaruna/paimon-moe" target="_blank" rel="noopener" style="color:var(--accent);">paimon.moe</a> by MadeBaruna &mdash; rarity database &amp; wish format reference</li>
+                <li><a href="https://github.com/theBowja/genshin-db" target="_blank" rel="noopener" style="color:var(--accent);">genshin-db</a> by theBowja &mdash; character &amp; weapon data</li>
+                <li><a href="https://genshin-impact-map.appsample.com" target="_blank" rel="noopener" style="color:var(--accent);">Genshin Impact Map</a> by appsample &mdash; interactive Teyvat map</li>
+                <li><a href="https://interactivemap.app/neverness-to-everness/maps/hethereau" target="_blank" rel="noopener" style="color:var(--accent);">NTE Interactive Map</a> &mdash; Hethereau map</li>
+            </ul>
+        </div></div>
         <div class="settings-section" style="text-align:center;color:var(--secondary-text);font-size:0.8em;opacity:0.7;">
-            <p>Constellation v45 &middot; NTE tasks + pixels + stamina</p>
+            <p>Constellation v1.0</p>
         </div>
     </div>`;
     document.querySelectorAll('.theme-chip').forEach(chip => chip.addEventListener('click', () => { const n=chip.dataset.theme; applyTheme(n, _customAccent); saveTheme(n, _customAccent); renderSettings(); }));
@@ -2780,7 +2810,7 @@ function renderStatusBar() {
         const ps = state.pityState || {};
         const limited = ps['Lottery_LimitedCharacter'] || { current5: 0 };
         bar.innerHTML = `
-            <span class="status-item"><span class="status-label">STAMINA</span> <span id="status-stamina">${stamina}</span><span class="status-sub">/${staminaMax}</span></span>
+            <span class="status-item"><span class="status-label">PIXELS</span> <span id="status-stamina">${stamina}</span><span class="status-sub">/${staminaMax}</span></span>
             <span class="status-divider"></span>
             <span class="status-item"><span class="status-label">CITY</span> <span id="status-city">${city}</span><span class="status-sub">/${cityMax}</span></span>
             <span class="status-divider"></span>
