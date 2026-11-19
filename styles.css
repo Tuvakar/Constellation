@@ -32,6 +32,23 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
+.skip-link {
+    position: fixed;
+    left: 12px;
+    top: 12px;
+    z-index: 5000;
+    transform: translateY(-160%);
+    background: var(--accent);
+    color: #101316;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-weight: 700;
+}
+.skip-link:focus { transform: translateY(0); }
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
 
 body {
     font-family: var(--font-stack);
@@ -956,6 +973,15 @@ body[data-edit-weekly="true"] #weekly-add-row { display: flex; }
     .star-halo { width: 46px; height: 46px; }
     .star-label { font-size: 0.55em; bottom: -16px; opacity: 0.85; line-height: 1.4; padding: 2px 3px; }
     .status-bar { gap: 8px; font-size: 0.65em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 
 /* ===== Scrollbar ===== */

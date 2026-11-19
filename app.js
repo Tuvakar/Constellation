@@ -371,18 +371,9 @@ function migrateV2(v2) {
 }
 
 function mergeDefaults(parsed) {
+    if (window.ConstellationCore) return window.ConstellationCore.mergeGenshinState(parsed, getDefaultState);
     const def = getDefaultState();
-    const merged = Object.assign({}, def, parsed);
-    merged.resin = Object.assign({}, def.resin, parsed.resin || {});
-    // Upgrade old resin cap (160) to the new 200 cap.
-    if (!merged.resin.max || merged.resin.max === 160) merged.resin.max = 200;
-    merged.pityState = Object.assign({}, def.pityState, parsed.pityState || {});
-    Object.keys(def.pityState).forEach(k => { if (!merged.pityState[k]) merged.pityState[k] = def.pityState[k]; });
-    if (!Array.isArray(merged.dailyTasks) || merged.dailyTasks.length===0) merged.dailyTasks = def.dailyTasks;
-    if (!Array.isArray(merged.weeklyTasks) || merged.weeklyTasks.length===0) merged.weeklyTasks = def.weeklyTasks;
-    if (typeof merged.calendarDisplayYear !== 'number') merged.calendarDisplayYear = new Date().getFullYear();
-    merged.stateVersion = STATE_VERSION;
-    return merged;
+    return Object.assign({}, def, parsed || {});
 }
 
 // ---------- NTE state ----------
@@ -421,30 +412,8 @@ function getNteDefaultState() {
     };
 }
 function mergeNteDefaults(parsed) {
-    const def = getNteDefaultState();
-    const merged = Object.assign({}, def, parsed || {});
-    merged.pityState = merged.pityState || {};
-    merged.userItemOverrides = merged.userItemOverrides || {};
-    merged.stateVersion = NTE_STATE_VERSION;
-    if (typeof merged.calendarDisplayYear !== 'number') merged.calendarDisplayYear = new Date().getFullYear();
-    // Ensure task arrays exist with defaults (older NTE state didn't have tasks).
-    if (!Array.isArray(merged.dailyTasks) || merged.dailyTasks.length===0) merged.dailyTasks = def.dailyTasks;
-    if (!Array.isArray(merged.weeklyTasks) || merged.weeklyTasks.length===0) merged.weeklyTasks = def.weeklyTasks;
-    // Pixels (NTE primogem equivalent).
-    if (typeof merged.pixelCount !== 'number') merged.pixelCount = 0;
-    if (typeof merged.pixelGoal !== 'number') merged.pixelGoal = 12800;
-    if (typeof merged.dailyStreak !== 'number') merged.dailyStreak = 0;
-    if (typeof merged.lastDailyReset !== 'string') merged.lastDailyReset = def.lastDailyReset;
-    if (typeof merged.lastWeeklyReset !== 'string') merged.lastWeeklyReset = def.lastWeeklyReset;
-    // Stamina (NTE resin equivalent; max 240).
-    merged.resin = Object.assign({}, def.resin, merged.resin || {});
-    if (merged.resin.max !== 240) merged.resin.max = 240;
-    if (typeof merged.resin.lastSetAt !== 'string') merged.resin.lastSetAt = def.resin.lastSetAt;
-    // City stamina (weekly; max 700).
-    merged.cityStamina = Object.assign({}, def.cityStamina, merged.cityStamina || {});
-    if (merged.cityStamina.max !== 700) merged.cityStamina.max = 700;
-    if (typeof merged.cityStamina.lastSetAt !== 'string') merged.cityStamina.lastSetAt = def.cityStamina.lastSetAt;
-    return merged;
+    if (window.ConstellationCore) return window.ConstellationCore.mergeNteState(parsed, getNteDefaultState);
+    return Object.assign({}, getNteDefaultState(), parsed || {});
 }
 
 // ---------- Accounts (multi-account support) ----------
@@ -572,7 +541,22 @@ function loadNteState() {
     }
     saveState();
 }
-function saveState() { try { localStorage.setItem(accountDataKey(), JSON.stringify(state)); } catch(e) {} }
+function saveState() {
+    if (!window.ConstellationCore) {
+        try { localStorage.setItem(accountDataKey(), JSON.stringify(state)); return true; }
+        catch (e) { console.error('saveState failed', e); return false; }
+    }
+    const result = window.ConstellationCore.createStorage(localStorage).set(accountDataKey(), state);
+    if (!result.ok) {
+        console.error('saveState failed', result.error);
+        const bar = $('status-bar');
+        if (bar) {
+            bar.setAttribute('aria-live', 'polite');
+            bar.title = window.ConstellationCore.storageErrorMessage(result.error);
+        }
+    }
+    return result.ok;
+}
 
 // ---------- Helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -589,6 +573,11 @@ function hexToDim(hex) {
 function showModal(opts) {
     opts = opts || {};
     const modal=$('custom-modal'), title=$('modal-title'), msg=$('modal-message'), input=$('modal-input'), custom=$('modal-custom-content'), cancelB=$('modal-cancel-btn'), confirmB=$('modal-confirm-btn');
+    const previouslyFocused = document.activeElement;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'modal-title');
+    modal.setAttribute('aria-describedby', 'modal-message');
     title.textContent = opts.title || '';
     msg.style.display = opts.message ? 'block' : 'none';
     msg.innerHTML = opts.message || '';
@@ -599,10 +588,32 @@ function showModal(opts) {
     cancelB.style.display = opts.type === 'alert' ? 'none' : 'inline-flex';
     confirmB.textContent = opts.confirmText || 'Confirm';
     modal.classList.add('visible');
-    if (opts.type === 'prompt') setTimeout(() => input.focus(), 50);
+    setTimeout(() => (opts.type === 'prompt' ? input : confirmB).focus(), 50);
     return new Promise(resolve => {
         let result = null;
-        const cleanup = () => { confirmB.onclick=null; cancelB.onclick=null; modal.classList.remove('visible'); setTimeout(()=>resolve(result),50); };
+        const keyHandler = (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                result = opts.type === 'prompt' ? null : (opts.type === 'alert' ? true : false);
+                cleanup();
+            }
+            if (event.key === 'Tab') {
+                const focusable = Array.from(modal.querySelectorAll('button:not([style*="display: none"]), input:not([style*="display: none"])'))
+                    .filter(el => el.offsetParent !== null);
+                if (!focusable.length) return;
+                const first = focusable[0], last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+            }
+        };
+        const cleanup = () => {
+            confirmB.onclick=null; cancelB.onclick=null;
+            document.removeEventListener('keydown', keyHandler);
+            modal.classList.remove('visible');
+            if (previouslyFocused && typeof previouslyFocused.focus === 'function') previouslyFocused.focus();
+            setTimeout(()=>resolve(result),50);
+        };
+        document.addEventListener('keydown', keyHandler);
         confirmB.onclick = () => { result = opts.type==='prompt' ? input.value : true; cleanup(); };
         cancelB.onclick  = () => { result = false; cleanup(); };
     });
