@@ -24,18 +24,7 @@ const ACTIVE_GAME_KEY = 'constellationActiveGame_v1';
 const NTE_ACCOUNTS_KEY = 'nteAccounts_v1';
 const NTE_DATA_PREFIX  = 'nteTrackerData_v1_acc_';
 const NTE_STATE_VERSION = 1;
-// CORS proxies — corsproxy.io first (the original working order; it's fast when it
-// works), with fallbacks. The bulletproof Promise.race timeout in fetchWithRetry
-// means a hung proxy only costs 10s before falling through to the next one, so the
-// order is a preference, not a reliability critical-path.
-const CORS_PROXIES = [
-    (u) => 'https://corsproxy.io/?' + encodeURIComponent(u),
-    (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-    (u) => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
-    (u) => 'https://corsproxy.org/?' + encodeURIComponent(u),
-    (u) => 'https://thingproxy.freeboard.io/fetch/' + u,
-];
-const CORS_PROXY = CORS_PROXIES[0];
+const GACHA_API_ENDPOINT = window.CONSTELLATION_CONFIG && window.CONSTELLATION_CONFIG.gachaApiEndpoint;
 const STATE_VERSION   = 3;
 const PRIMO_PER_PULL  = 160;
 
@@ -1335,14 +1324,14 @@ function renderGachaStats() {
                     <ol style="padding-left:20px;margin:0;line-height:1.6;">
                         <li>Open Genshin Impact on your PC.</li>
                         <li>Open the Wish History in the game and wait for it to fully load.</li>
-                        <li>Press the START key, search for "PowerShell", and open it.</li>
-                        <li>Copy &amp; paste the script below into PowerShell:</li>
+                        <li>Open PowerShell and paste this script:</li>
                     </ol>
                     <div class="code-block-wrapper"><pre id="powershell-script">${psEsc}</pre><button id="copy-script-btn" class="btn btn-primary">Copy</button></div>
-                    <ol start="5" style="padding-left:20px;margin-top:10px;line-height:1.6;">
-                        <li>Press ENTER. The link will be copied to your clipboard.</li>
-                        <li>Click the button below and paste the link.</li>
+                    <ol start="4" style="padding-left:20px;margin-top:10px;line-height:1.6;">
+                        <li>Press Enter to copy the current wish URL to your clipboard.</li>
+                        <li>Click Import Gacha Log and paste the URL.</li>
                     </ol>
+                    <p style="margin-bottom:0;">The URL is sent securely to the Constellation gacha service to retrieve your wish history. It is not stored by the service.</p>
                 </div>
             </details>
             <div class="controls-group" style="max-width:400px;margin:0 auto 10px auto;">
@@ -1358,8 +1347,13 @@ function renderGachaStats() {
         </div>`;
     $('copy-script-btn').addEventListener('click', () => {
         navigator.clipboard.writeText($('powershell-script').textContent).then(() => {
-            const b = $('copy-script-btn'); b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy',2000);
-        }).catch(()=>{});
+            const button = $('copy-script-btn');
+            button.textContent = 'Copied!';
+            setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+        }).catch(error => {
+            console.error('Could not copy wish-link script', error);
+            showModal({ type:'alert', title:'Copy Failed', message:'Please select and copy the script manually.', confirmText:'OK' });
+        });
     });
     $('import-gacha-btn').addEventListener('click', openGachaImport);
     $('import-wish-file-btn').addEventListener('click', () => $('wish-file-input').click());
@@ -1758,78 +1752,52 @@ async function handleGachaImport(url) {
         const el = $('gacha-import-status'); if (el) el.textContent = text;
     }
 
-    // Fetch with proxy fallback. Tries each proxy in order until one returns valid
-    // wish data. A non-zero retcode stops that banner (returns null = break).
-    //
-    // TIMEOUT: Each attempt is raced against a hard timeout via Promise.race. This is
-    // bulletproof — it fires regardless of whether AbortController works for the
-    // specific cross-origin response (some browsers don't abort opaque/CORS-blocked
-    // responses reliably). A hung proxy connection (or a slow body drip) is guaranteed
-    // to be caught at 10s, then the next proxy is tried. 5 × 10s = 50s worst-case.
-    async function fetchWithRetry(targetUrl, label) {
-        const maxAttempts = CORS_PROXIES.length;
-        const ATTEMPT_TIMEOUT_MS = 10000;
-        const proxyNames = ['corsproxy.io', 'allorigins.win', 'codetabs.com', 'corsproxy.org', 'thingproxy'];
-        let lastErr = null;
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            if (_importAborted) throw new Error('Import cancelled by user.');
-            const proxyIdx = (attempt - 1) % CORS_PROXIES.length;
-            const proxyUrl = CORS_PROXIES[proxyIdx](targetUrl);
-            const proxyName = proxyNames[proxyIdx] || ('proxy ' + (proxyIdx + 1));
-            setStatus(`${label}${attempt > 1 ? ` (fallback ${attempt}/${maxAttempts}: ${proxyName})` : ` (via ${proxyName})`}...`);
-            try {
-                // Race the fetch+parse against a hard timeout. The timeout promise
-                // NEVER resolves — it only rejects — so if the fetch hangs, the race
-                // settles on the timeout rejection at exactly ATTEMPT_TIMEOUT_MS.
-                const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('__TIMEOUT__')), ATTEMPT_TIMEOUT_MS);
-                });
-                const fetchPromise = (async () => {
-                    const controller = new AbortController();
-                    const tid = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
-                    try {
-                        const response = await fetch(proxyUrl, { signal: controller.signal });
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const data = await response.json();
-                        return data;
-                    } finally {
-                        clearTimeout(tid);
-                    }
-                })();
-                const data = await Promise.race([fetchPromise, timeoutPromise]);
-                if (_importAborted) throw new Error('Import cancelled by user.');
-                // Match original behaviour: bad retcode => stop this banner (NOT an error).
-                if (data.retcode !== 0) return null;
-                return data;
-            } catch (e) {
-                if (_importAborted) throw new Error('Import cancelled by user.');
-                const reason = e.message === '__TIMEOUT__' ? `timed out after ${ATTEMPT_TIMEOUT_MS/1000}s` : e.message;
-                lastErr = e;
-                if (attempt < maxAttempts) {
-                    setStatus(`${label} — ${proxyName} ${reason}, trying next proxy...`);
-                    await new Promise(r => setTimeout(r, 500));
-                } else {
-                    // All proxies failed — surface a clear error rather than hanging.
-                    throw new Error(`${label} failed via all proxies (${reason}). You may be rate-limited; wait a minute and try again, or use File Import instead.`);
-                }
-            }
+    async function fetchWithGachaApi(authParams, bannerId, endId, label) {
+        if (_importAborted) throw new Error('Import cancelled by user.');
+        if (!GACHA_API_ENDPOINT || !/^https:\/\//i.test(GACHA_API_ENDPOINT)) {
+            throw new Error('The hosted gacha service is not configured yet. Please use "Import Wishes File" for now.');
         }
-        throw new Error(`${label} failed via all proxies (${lastErr ? lastErr.message : 'unknown'}). You may be rate-limited; wait a minute and try again.`);
+        setStatus(`${label}...`);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        try {
+            const response = await fetch(GACHA_API_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ auth: authParams, gacha_type: bannerId, size: 20, end_id: String(endId) }),
+                signal: controller.signal,
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || `Gacha service returned HTTP ${response.status}`);
+            if (payload.retcode !== 0) return null;
+            return payload;
+        } catch (error) {
+            if (error.name === 'AbortError') throw new Error('The gacha service timed out. Please try again.');
+            throw error;
+        } finally {
+            clearTimeout(timeout);
+        }
     }
 
     try {
         const urlObj = new URL(url);
-        const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
-        const baseParams = new URLSearchParams(urlObj.search);
+        if (urlObj.protocol !== 'https:' || !/(^|\.)(hoyoverse|mihoyo)\.com$/i.test(urlObj.hostname)) {
+            throw new Error('Please paste a valid HTTPS HoYoverse wish URL.');
+        }
+        const sourceParams = urlObj.searchParams;
+        const requiredAuthParams = ['authkey', 'authkey_ver', 'sign_type', 'auth_appid', 'region'];
+        if (!requiredAuthParams.every(key => sourceParams.get(key))) {
+            throw new Error('This URL is missing required wish authentication data. Copy a fresh URL from Wish History and try again.');
+        }
+        const authParams = {};
+        ['authkey', 'authkey_ver', 'sign_type', 'auth_appid', 'init_type', 'timestamp', 'lang', 'device_type', 'game_version', 'region', 'game_biz']
+            .forEach(key => { if (sourceParams.has(key)) authParams[key] = sourceParams.get(key); });
         for (const banner of IMPORT_BANNER_TYPES) {
             if (_importAborted) break;
             let endId='0', page=1, foundExisting=false;
             while (!foundExisting && !_importAborted) {
-                const params = new URLSearchParams(baseParams);
-                params.set('gacha_type', banner.id); params.set('size','20'); params.set('end_id', endId);
-                const targetUrl = `${baseUrl}?${params.toString()}`;
                 const label = `Fetching ${banner.name} \u2014 page ${page}`;
-                const data = await fetchWithRetry(targetUrl, label);
+                const data = await fetchWithGachaApi(authParams, banner.id, endId, label);
                 // null = bad retcode or end of data => stop this banner (like original's break).
                 if (!data) break;
                 const list = (data.data && data.data.list) || [];
@@ -1846,7 +1814,7 @@ async function handleGachaImport(url) {
                     existingIds.add(wish.id);
                 }
                 endId = list[list.length-1].id; page++;
-                await new Promise(r => setTimeout(r, 300));
+                await new Promise(r => setTimeout(r, 600));
             }
         }
         if (_importAborted) {
