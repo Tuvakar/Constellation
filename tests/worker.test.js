@@ -59,9 +59,10 @@ test('worker ignores caller-supplied URLs and only requests the fixed official A
             { ALLOWED_ORIGINS: 'https://tuvakar.github.io' }
         );
         assert.equal(response.status, 200);
-        assert.equal(requestedUrl.hostname, 'public-operation-hk4e.hoyoverse.com');
+        assert.equal(requestedUrl.hostname, 'public-operation-hk4e-sg.hoyoverse.com');
         assert.equal(requestedUrl.searchParams.get('authkey'), auth.authkey);
         assert.equal(requestedUrl.searchParams.get('gacha_type'), '301');
+        assert.equal(requestedUrl.searchParams.get('game_biz'), 'hk4e_global');
     } finally {
         global.fetch = originalFetch;
     }

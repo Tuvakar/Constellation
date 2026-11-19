@@ -1769,7 +1769,9 @@ async function handleGachaImport(url) {
             });
             const payload = await response.json();
             if (!response.ok) throw new Error(payload.error || `Gacha service returned HTTP ${response.status}`);
-            if (payload.retcode !== 0) return null;
+            if (payload.retcode !== 0) {
+                throw new Error(`HoYoverse rejected the wish URL (code ${payload.retcode}). It may have expired; copy a fresh URL and try again.`);
+            }
             return payload;
         } catch (error) {
             if (error.name === 'AbortError') throw new Error('The gacha service timed out. Please try again.');
@@ -1792,6 +1794,7 @@ async function handleGachaImport(url) {
         const authParams = {};
         ['authkey', 'authkey_ver', 'sign_type', 'auth_appid', 'init_type', 'timestamp', 'lang', 'device_type', 'game_version', 'region', 'game_biz']
             .forEach(key => { if (sourceParams.has(key)) authParams[key] = sourceParams.get(key); });
+        if (!authParams.game_biz) authParams.game_biz = authParams.region.startsWith('cn_') ? 'hk4e_cn' : 'hk4e_global';
         for (const banner of IMPORT_BANNER_TYPES) {
             if (_importAborted) break;
             let endId='0', page=1, foundExisting=false;

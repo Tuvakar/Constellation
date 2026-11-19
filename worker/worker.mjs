@@ -1,8 +1,5 @@
 const OFFICIAL_ENDPOINTS = {
-    global: [
-        'https://public-operation-hk4e.hoyoverse.com/gacha_info/api/getGachaLog',
-        'https://hk4e-api-os.hoyoverse.com/event/gacha_info/api/getGachaLog'
-    ],
+    global: ['https://public-operation-hk4e-sg.hoyoverse.com/gacha_info/api/getGachaLog'],
     china: [
         'https://public-operation-hk4e.mihoyo.com/gacha_info/api/getGachaLog'
     ]
@@ -108,7 +105,12 @@ async function fetchWishes(body) {
     const endpoints = region.startsWith('cn_') ? OFFICIAL_ENDPOINTS.china : OFFICIAL_ENDPOINTS.global;
     const params = new URLSearchParams();
     for (const field of AUTH_FIELDS) {
-        if (typeof body.auth[field] === 'string') params.set(field, body.auth[field]);
+        if (field === 'game_biz') {
+            const gameBiz = body.auth.game_biz || (region.startsWith('cn_') ? 'hk4e_cn' : 'hk4e_global');
+            params.set(field, gameBiz);
+        } else if (typeof body.auth[field] === 'string') {
+            params.set(field, body.auth[field]);
+        }
     }
     params.set('gacha_type', String(body.gacha_type));
     params.set('size', '20');
