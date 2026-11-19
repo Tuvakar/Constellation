@@ -296,7 +296,6 @@ const IMPORT_BANNER_TYPES = [
     { id:'302', name:'Weapon Event' },
     { id:'200', name:'Standard' },
     { id:'500', name:'Chronicled Wish' },
-    { id:'100', name:'Novice' }, // Beginners' Wish — removed long ago; most accounts have 0 pulls, kept last so the active banners import first.
 ];
 
 
